@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prompt Library - Options</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #333;
+      background-color: #f5f5f5;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      background-color: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    header {
+      margin-bottom: 30px;
+      border-bottom: 2px solid #4a90e2;
+      padding-bottom: 15px;
+    }
+
+    h1 {
+      color: #4a90e2;
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 14px;
+    }
+
+    .section {
+      margin-bottom: 30px;
+    }
+
+    h2 {
+      font-size: 20px;
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    .actions-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background-color: #4a90e2;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: #357abd;
+    }
+
+    .btn-secondary {
+      background-color: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background-color: #5a6268;
+    }
+
+    .btn-danger {
+      background-color: #dc3545;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background-color: #c82333;
+    }
+
+    .btn-success {
+      background-color: #28a745;
+      color: white;
+    }
+
+    .btn-success:hover {
+      background-color: #218838;
+    }
+
+    #promptsTable {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+
+    #promptsTable th,
+    #promptsTable td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+
+    #promptsTable th {
+      background-color: #f8f9fa;
+      font-weight: 600;
+      color: #333;
+    }
+
+    #promptsTable tr:hover {
+      background-color: #f8f9fa;
+    }
+
+    .tags-cell {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      background-color: #e3f2fd;
+      color: #1976d2;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .action-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      margin-right: 4px;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+    }
+
+    .modal.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-content {
+      background-color: white;
+      padding: 30px;
+      border-radius: 8px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      margin-bottom: 20px;
+    }
+
+    .modal-header h2 {
+      margin-bottom: 5px;
+    }
+
+    .close-btn {
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      color: #aaa;
+      cursor: pointer;
+    }
+
+    .close-btn:hover {
+      color: #000;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: #555;
+    }
+
+    .form-group input,
+    .form-group textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 14px;
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 120px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .stat-card {
+      background-color: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 32px;
+      font-weight: bold;
+      color: #4a90e2;
+    }
+
+    .stat-label {
+      font-size: 14px;
+      color: #666;
+      margin-top: 5px;
+    }
+
+    .import-section {
+      margin-top: 20px;
+    }
+
+    #importFile {
+      margin-bottom: 10px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 50px 20px;
+      color: #999;
+    }
+
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 15px 20px;
+      border-radius: 4px;
+      background-color: #28a745;
+      color: white;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      display: none;
+      z-index: 2000;
+    }
+
+    .notification.active {
+      display: block;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+      }
+      to {
+        transform: translateX(0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Prompt Library - Advanced Management</h1>
+      <p class="subtitle">View, edit, export, and import your prompts</p>
+    </header>
+
+    <div class="section">
+      <h2>Statistics</h2>
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-value" id="totalPrompts">0</div>
+          <div class="stat-label">Total Prompts</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="totalTags">0</div>
+          <div class="stat-label">Unique Tags</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="totalCharacters">0</div>
+          <div class="stat-label">Total Characters</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Actions</h2>
+      <div class="actions-bar">
+        <button id="exportBtn" class="btn btn-primary">Export as JSON</button>
+        <button id="selectAllBtn" class="btn btn-secondary">Select All</button>
+        <button id="deselectAllBtn" class="btn btn-secondary">Deselect All</button>
+        <button id="deleteSelectedBtn" class="btn btn-danger">Delete Selected</button>
+      </div>
+      
+      <div class="import-section">
+        <h3>Import Prompts</h3>
+        <input type="file" id="importFile" accept=".json">
+        <button id="importBtn" class="btn btn-success">Import from JSON</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>All Prompts</h2>
+      <div id="tableContainer"></div>
+    </div>
+  </div>
+
+  <div id="editModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="close-btn" id="closeModal">&times;</span>
+        <h2>Edit Prompt</h2>
+      </div>
+      <form id="editForm">
+        <input type="hidden" id="editId">
+        <div class="form-group">
+          <label for="editTitle">Title</label>
+          <input type="text" id="editTitle" required>
+        </div>
+        <div class="form-group">
+          <label for="editContent">Prompt Content</label>
+          <textarea id="editContent" required></textarea>
+        </div>
+        <div class="form-group">
+          <label for="editTags">Tags (comma-separated)</label>
+          <input type="text" id="editTags">
+        </div>
+        <div class="form-group">
+          <label for="editSourceUrl">Source URL</label>
+          <input type="url" id="editSourceUrl">
+        </div>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="notification" class="notification"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>
