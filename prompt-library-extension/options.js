@@ -249,7 +249,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   document.getElementById('deleteSelectedBtn').addEventListener('click', async () => {
     if (selectedPrompts.size === 0) {
-      alert('No prompts selected');
+      showNotification('No prompts selected', 2000);
       return;
     }
     
@@ -270,7 +270,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const file = fileInput.files[0];
     
     if (!file) {
-      alert('Please select a file to import');
+      showNotification('Please select a file to import', 2000);
       return;
     }
     
@@ -283,7 +283,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       showNotification(`Successfully imported ${importedCount} new prompt(s)`);
       fileInput.value = '';
     } catch (error) {
-      alert('Error importing prompts: ' + error.message);
+      showNotification('Error importing prompts: ' + error.message, 4000);
     }
   });
   
@@ -305,9 +305,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sourceUrl = document.getElementById('editSourceUrl').value.trim();
     
     if (!title || !content) {
-      alert('Title and content are required');
+      document.getElementById('editTitle').style.borderColor = !title ? '#dc3545' : '';
+      document.getElementById('editContent').style.borderColor = !content ? '#dc3545' : '';
       return;
     }
+    
+    document.getElementById('editTitle').style.borderColor = '';
+    document.getElementById('editContent').style.borderColor = '';
     
     const tags = tagsString
       ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)

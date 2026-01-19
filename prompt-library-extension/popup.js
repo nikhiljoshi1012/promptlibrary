@@ -36,7 +36,7 @@ function renderPrompts(prompts) {
   if (prompts.length === 0) {
     promptsList.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">📝</div>
+        <div class="empty-state-icon" aria-label="Empty prompt library">📝</div>
         <div class="empty-state-text">No prompts yet. Create your first prompt above!</div>
       </div>
     `;
@@ -152,9 +152,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sourceUrl = sourceUrlInput.value.trim();
     
     if (!title || !promptContent) {
-      alert('Title and prompt content are required!');
+      titleInput.style.borderColor = !title ? '#dc3545' : '';
+      promptInput.style.borderColor = !promptContent ? '#dc3545' : '';
       return;
     }
+    
+    titleInput.style.borderColor = '';
+    promptInput.style.borderColor = '';
     
     const tags = tagsString
       ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)
