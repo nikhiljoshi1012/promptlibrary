@@ -29,9 +29,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       
       prompts.push(newPrompt);
       
-      chrome.storage.local.set({ prompts }, () => {
-        console.log('Prompt saved from context menu');
-      });
+      chrome.storage.local.set({ prompts });
     });
   }
 });

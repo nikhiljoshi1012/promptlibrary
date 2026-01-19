@@ -6,6 +6,15 @@ function generateUUID() {
   });
 }
 
+function escapeHtml(unsafe) {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 async function loadPrompts() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['prompts'], (result) => {
@@ -47,11 +56,11 @@ function renderPrompts(prompts) {
   
   promptsList.innerHTML = sortedPrompts.map(prompt => {
     const tagsHtml = prompt.tags && prompt.tags.length > 0
-      ? `<div class="prompt-tags">${prompt.tags.map(tag => `<span class="tag">${tag}</span>`).join('')}</div>`
+      ? `<div class="prompt-tags">${prompt.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`
       : '';
     
     const sourceHtml = prompt.source_url
-      ? `<div class="prompt-meta">Source: ${prompt.source_url}</div>`
+      ? `<div class="prompt-meta">Source: ${escapeHtml(prompt.source_url)}</div>`
       : '';
     
     const contentPreview = prompt.prompt_content.length > 200
@@ -59,16 +68,16 @@ function renderPrompts(prompts) {
       : prompt.prompt_content;
     
     return `
-      <div class="prompt-item" data-id="${prompt.id}">
+      <div class="prompt-item" data-id="${escapeHtml(prompt.id)}">
         <div class="prompt-header">
-          <div class="prompt-title">${prompt.title}</div>
+          <div class="prompt-title">${escapeHtml(prompt.title)}</div>
           <div class="prompt-actions">
-            <button class="btn-copy" data-id="${prompt.id}">Copy</button>
-            <button class="btn-delete" data-id="${prompt.id}">Delete</button>
+            <button class="btn-copy" data-id="${escapeHtml(prompt.id)}">Copy</button>
+            <button class="btn-delete" data-id="${escapeHtml(prompt.id)}">Delete</button>
           </div>
         </div>
         ${tagsHtml}
-        <div class="prompt-content">${contentPreview}</div>
+        <div class="prompt-content">${escapeHtml(contentPreview)}</div>
         <div class="prompt-meta">Created: ${formatDate(prompt.created_at)}</div>
         ${sourceHtml}
       </div>
@@ -152,13 +161,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sourceUrl = sourceUrlInput.value.trim();
     
     if (!title || !promptContent) {
-      titleInput.style.borderColor = !title ? '#dc3545' : '';
-      promptInput.style.borderColor = !promptContent ? '#dc3545' : '';
+      titleInput.classList.toggle('error', !title);
+      promptInput.classList.toggle('error', !promptContent);
       return;
     }
     
-    titleInput.style.borderColor = '';
-    promptInput.style.borderColor = '';
+    titleInput.classList.remove('error');
+    promptInput.classList.remove('error');
     
     const tags = tagsString
       ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)

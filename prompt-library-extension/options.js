@@ -1,5 +1,14 @@
 let selectedPrompts = new Set();
 
+function escapeHtml(unsafe) {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 async function loadPrompts() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['prompts'], (result) => {
@@ -80,19 +89,19 @@ function renderTable(prompts) {
           const previewText = prompt.prompt_content.length > 100 ? contentPreview + '...' : contentPreview;
           
           const tagsHtml = prompt.tags && prompt.tags.length > 0
-            ? prompt.tags.map(tag => `<span class="tag">${tag}</span>`).join('')
+            ? prompt.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')
             : '-';
           
           return `
-            <tr data-id="${prompt.id}">
-              <td><input type="checkbox" class="prompt-checkbox" data-id="${prompt.id}" ${selectedPrompts.has(prompt.id) ? 'checked' : ''}></td>
-              <td><strong>${prompt.title}</strong></td>
+            <tr data-id="${escapeHtml(prompt.id)}">
+              <td><input type="checkbox" class="prompt-checkbox" data-id="${escapeHtml(prompt.id)}" ${selectedPrompts.has(prompt.id) ? 'checked' : ''}></td>
+              <td><strong>${escapeHtml(prompt.title)}</strong></td>
               <td><div class="tags-cell">${tagsHtml}</div></td>
-              <td>${previewText}</td>
+              <td>${escapeHtml(previewText)}</td>
               <td>${formatDate(prompt.created_at)}</td>
               <td>
-                <button class="btn btn-primary action-btn edit-btn" data-id="${prompt.id}">Edit</button>
-                <button class="btn btn-danger action-btn delete-btn" data-id="${prompt.id}">Delete</button>
+                <button class="btn btn-primary action-btn edit-btn" data-id="${escapeHtml(prompt.id)}">Edit</button>
+                <button class="btn btn-danger action-btn delete-btn" data-id="${escapeHtml(prompt.id)}">Delete</button>
               </td>
             </tr>
           `;
@@ -305,13 +314,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sourceUrl = document.getElementById('editSourceUrl').value.trim();
     
     if (!title || !content) {
-      document.getElementById('editTitle').style.borderColor = !title ? '#dc3545' : '';
-      document.getElementById('editContent').style.borderColor = !content ? '#dc3545' : '';
+      document.getElementById('editTitle').classList.toggle('error', !title);
+      document.getElementById('editContent').classList.toggle('error', !content);
       return;
     }
     
-    document.getElementById('editTitle').style.borderColor = '';
-    document.getElementById('editContent').style.borderColor = '';
+    document.getElementById('editTitle').classList.remove('error');
+    document.getElementById('editContent').classList.remove('error');
     
     const tags = tagsString
       ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)
