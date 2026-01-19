@@ -105,7 +105,10 @@ function attachEventListeners() {
             e.target.classList.remove('copied');
           }, 2000);
         } catch (err) {
-          console.error('Failed to copy:', err);
+          e.target.textContent = 'Failed';
+          setTimeout(() => {
+            e.target.textContent = 'Copy';
+          }, 2000);
         }
       }
     });
