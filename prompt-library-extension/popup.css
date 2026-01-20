@@ -40,6 +40,14 @@ section {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 h2 {
   font-size: 16px;
   font-weight: 600;
@@ -89,6 +97,10 @@ h2 {
 .form-group textarea {
   resize: vertical;
   min-height: 80px;
+}
+
+.collapsed {
+  display: none;
 }
 
 .btn-primary {

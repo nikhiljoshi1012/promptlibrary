@@ -432,6 +432,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const recommendedModelInput = document.getElementById('recommendedModelInput');
   const limitationsInput = document.getElementById('limitationsInput');
   const searchInput = document.getElementById('searchInput');
+  const togglePromptFormBtn = document.getElementById('togglePromptFormBtn');
 
   document.getElementById('closeUseModal').addEventListener('click', closeUseModal);
   document.getElementById('usePromptModal').addEventListener('click', (e) => {
@@ -474,6 +475,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch (error) {
         showToast(response.message || 'Injection failed.');
       }
+    }
+  });
+
+  togglePromptFormBtn.addEventListener('click', () => {
+    const isCollapsed = promptForm.classList.contains('collapsed');
+    if (isCollapsed) {
+      promptForm.classList.remove('collapsed');
+      togglePromptFormBtn.textContent = 'Hide Form';
+      titleInput.focus();
+    } else {
+      promptForm.classList.add('collapsed');
+      togglePromptFormBtn.textContent = 'Add New Prompt';
     }
   });
 
@@ -536,6 +549,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     limitationsInput.value = '';
 
     renderPrompts(existingPrompts);
+
+    promptForm.classList.add('collapsed');
+    togglePromptFormBtn.textContent = 'Add New Prompt';
   });
 
   searchInput.addEventListener('input', (e) => {

@@ -13,8 +13,11 @@
     </header>
     
     <section class="add-prompt-section">
-      <h2>Add New Prompt</h2>
-      <form id="promptForm">
+      <div class="section-header">
+        <h2>Add New Prompt</h2>
+        <button type="button" class="btn-secondary" id="togglePromptFormBtn">Add New Prompt</button>
+      </div>
+      <form id="promptForm" class="collapsed">
         <div class="form-group">
           <label for="titleInput">Title *</label>
           <input type="text" id="titleInput" placeholder="Enter prompt title" required>
