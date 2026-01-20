@@ -169,7 +169,10 @@ h2 {
 }
 
 .btn-copy,
-.btn-delete {
+.btn-delete,
+.btn-inject,
+.btn-use,
+.btn-secondary {
   padding: 6px 12px;
   border: none;
   border-radius: 4px;
@@ -190,6 +193,33 @@ h2 {
 
 .btn-copy.copied {
   background-color: #28a745;
+}
+
+.btn-use {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-use:hover {
+  background-color: #5a6268;
+}
+
+.btn-inject {
+  background-color: #28a745;
+  color: white;
+}
+
+.btn-inject:hover {
+  background-color: #218838;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #5a6268;
 }
 
 .btn-delete {
@@ -233,6 +263,110 @@ h2 {
   font-size: 11px;
   color: #999;
   margin-top: 8px;
+}
+
+.prompt-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  background-color: #fff3cd;
+  color: #856404;
+  margin-left: 6px;
+}
+
+.context-details {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #555;
+}
+
+.context-details summary {
+  cursor: pointer;
+  color: #4a90e2;
+  font-weight: 600;
+}
+
+.context-line {
+  margin-top: 4px;
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.active {
+  display: flex;
+}
+
+.modal-content {
+  background: #fff;
+  width: 90%;
+  max-width: 520px;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.close-btn {
+  font-size: 22px;
+  cursor: pointer;
+  color: #999;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.modal-actions .btn-primary,
+.modal-actions .btn-secondary {
+  width: auto;
+  padding: 8px 14px;
+}
+
+.resolved-preview {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 10px;
+  white-space: pre-wrap;
+  font-size: 13px;
+  color: #333;
+}
+
+.toast {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #333;
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: none;
+  z-index: 2000;
+}
+
+.toast.active {
+  display: block;
 }
 
 .empty-state {

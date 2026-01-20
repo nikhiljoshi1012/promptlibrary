@@ -23,6 +23,9 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         prompt_content: info.selectionText,
         tags: [],
         source_url: tab.url || null,
+        is_template: false,
+        variables: [],
+        usage_context: null,
         created_at: Date.now(),
         updated_at: Date.now()
       };

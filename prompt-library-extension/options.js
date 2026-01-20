@@ -9,6 +9,37 @@ function escapeHtml(unsafe) {
     .replace(/'/g, "&#039;");
 }
 
+function normalizeVariableName(name) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function parseVariables(promptContent) {
+  const regex = /\{([^{}]+)\}/g;
+  const variables = [];
+  const names = new Set();
+  let match;
+
+  while ((match = regex.exec(promptContent)) !== null) {
+    const normalized = normalizeVariableName(match[1]);
+    if (!normalized || names.has(normalized)) {
+      continue;
+    }
+    names.add(normalized);
+    variables.push({
+      name: normalized,
+      description: '',
+      default_value: ''
+    });
+  }
+
+  return variables;
+}
+
 async function loadPrompts() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['prompts'], (result) => {
@@ -174,6 +205,10 @@ function openEditModal(prompt) {
   document.getElementById('editContent').value = prompt.prompt_content;
   document.getElementById('editTags').value = prompt.tags ? prompt.tags.join(', ') : '';
   document.getElementById('editSourceUrl').value = prompt.source_url || '';
+  const usageContext = prompt.usage_context || {};
+  document.getElementById('editBestUseCase').value = usageContext.best_use_case || '';
+  document.getElementById('editRecommendedModel').value = usageContext.recommended_model || '';
+  document.getElementById('editLimitations').value = usageContext.limitations || '';
   
   modal.classList.add('active');
 }
@@ -312,6 +347,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const content = document.getElementById('editContent').value.trim();
     const tagsString = document.getElementById('editTags').value.trim();
     const sourceUrl = document.getElementById('editSourceUrl').value.trim();
+    const bestUseCase = document.getElementById('editBestUseCase').value.trim();
+    const recommendedModel = document.getElementById('editRecommendedModel').value.trim();
+    const limitations = document.getElementById('editLimitations').value.trim();
     
     if (!title || !content) {
       document.getElementById('editTitle').classList.toggle('error', !title);
@@ -325,6 +363,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tags = tagsString
       ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)
       : [];
+
+    const usageContext = (bestUseCase || recommendedModel || limitations)
+      ? {
+          best_use_case: bestUseCase,
+          recommended_model: recommendedModel,
+          limitations
+        }
+      : null;
+
+    const variables = parseVariables(content);
     
     const prompts = await loadPrompts();
     const promptIndex = prompts.findIndex(p => p.id === promptId);
@@ -336,6 +384,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         prompt_content: content,
         tags,
         source_url: sourceUrl || null,
+        is_template: variables.length > 0,
+        variables,
+        usage_context: usageContext,
         updated_at: Date.now()
       };
       

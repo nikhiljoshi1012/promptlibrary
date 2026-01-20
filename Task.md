@@ -1,272 +1,356 @@
-<I’ll answer as a world-famous **Software Architect for AI Developer Tooling** with the **Google Chrome Developer Expert (GDE) Award in Web Platforms**>
+---
 
-## **Answering example**
+# 📘 Codex Feature Specifications
 
-**TL;DR**:
-Below is a **single, copy-paste-ready Codex mega-prompt**. You can give this **as-is** to Codex (or any coding agent). It is **authoritative, unambiguous, exhaustive**, and forces the agent to deliver a **fully working Chrome extension** with **no placeholders, no gaps, no assumptions**.
+## Prompt OS – Killer Features (Implementation Ready)
 
 ---
 
-# 🧠 SINGLE CODEX MEGA-PROMPT
+## 1️⃣ Prompt Templates with Variables
 
-### (Chrome Extension – Prompt Library)
+### Feature Name
 
-````md
-You are an expert Chrome Extension engineer specializing in Manifest V3, JavaScript, and browser storage APIs.
-
-Your task is to DESIGN AND IMPLEMENT a COMPLETE, PRODUCTION-READY Chrome Extension called **“Prompt Library”**.
-
-You MUST follow ALL instructions below exactly.  
-You MUST output REAL, WORKING CODE for EVERY required file.  
-You MUST NOT use placeholders, TODOs, pseudo-code, or omit any logic.
+**Prompt Templates with Variables**
 
 ---
 
-## 🎯 OBJECTIVE
+### Goal
 
-Build a **Chrome Extension (Manifest V3)** that allows users to:
-
-- Save AI prompts into a personal library
-- Organize prompts using titles and tags
-- Search prompts instantly
-- Copy prompts with one click
-- Save prompts directly from any website via right-click
-
-The extension must be **offline-first**, **privacy-preserving**, and **fast**.
+Allow prompts to contain **dynamic placeholders** that users can fill at usage time, turning prompts into reusable, parameterized tools.
 
 ---
 
-## 🧩 CORE FEATURES (MANDATORY)
+### Functional Description
 
-### 1. Prompt Creation (Manual)
-Users can create a prompt via the popup UI with:
-- Title (required)
-- Prompt content (required, multiline)
-- Tags (comma-separated, optional)
-- Source URL (optional)
-
-Auto-generate:
-- `id` (UUID)
-- `created_at` (timestamp in ms)
-- `updated_at` (timestamp in ms)
-
----
-
-### 2. Prompt Creation (Context Menu)
-Add a right-click context menu item:
-**“Save as Prompt”**
-
-Behavior:
-- Appears when text is selected
-- Saves selected text as `prompt_content`
-- Sets title to `"Saved from Web"`
-- Sets `source_url` to the current page URL
-- Tags default to empty array
-
----
-
-### 3. Prompt Library
-Popup must display all prompts in a scrollable list.
-
-Each prompt item must show:
-- Title
-- Tags (if present)
-- Copy button
-- Delete button
-
----
-
-### 4. Search & Filter
-- Full-text search across:
-  - Title
-  - Prompt content
-- Optional tag filtering
-- Search must update results instantly
-
----
-
-### 5. Copy to Clipboard
-- One-click copy
-- Copies ONLY the prompt content
-- Must use:
-```js
-navigator.clipboard.writeText()
-````
-
----
-
-### 6. Delete Prompt
-
-* Remove prompt by ID
-* Persist change immediately
-* UI updates without reload
-
----
-
-## 🗂 FILE STRUCTURE (STRICT)
-
-You MUST create and fully implement ALL of these files:
+A prompt may include **variables** using the syntax:
 
 ```
-prompt-library-extension/
-│
-├── manifest.json
-│
-├── popup.html
-├── popup.js
-├── popup.css
-│
-├── background.js
-│
-├── options.html
-├── options.js
-│
-└── icons/
-    ├── icon16.png
-    ├── icon48.png
-    └── icon128.png
+{variable_name}
 ```
+
+Example:
+
+```
+Summarize this {document_type} for a {audience} in a {tone}.
+```
+
+When the user selects this prompt:
+
+* The system detects all variables
+* Prompts the user to input values
+* Generates a **final resolved prompt**
 
 ---
 
-## 📦 DATA MODEL (MANDATORY)
+### Data Model Extension
 
-All prompts MUST follow this exact schema:
+Each prompt object must support:
 
 ```json
 {
-  "id": "uuid",
-  "title": "string",
-  "prompt_content": "string",
-  "tags": ["string"],
-  "source_url": "string | null",
-  "created_at": 1700000000000,
-  "updated_at": 1700000000000
+  "is_template": true,
+  "variables": [
+    {
+      "name": "document_type",
+      "description": "Type of document to summarize",
+      "default_value": ""
+    }
+  ]
 }
 ```
 
-All prompts MUST be stored under ONE key only:
+Rules:
 
-```js
-chrome.storage.local.set({
-  prompts: []
-});
-```
+* Variables are **derived automatically** by parsing `{}` in prompt content
+* Variable names must be:
 
----
-
-## 🧠 STORAGE RULES
-
-* Use ONLY `chrome.storage.local`
-* Handle empty storage safely
-* Never overwrite existing prompts accidentally
+  * lowercase
+  * snake_case
+  * unique per prompt
 
 ---
 
-## 🧾 manifest.json REQUIREMENTS
+### UI Requirements
 
-* Manifest Version: **3**
-* Permissions:
+When user clicks **Use Prompt**:
+
+1. Detect variables
+2. Render a form with:
+
+   * Label = variable name
+   * Optional description
+   * Input field (text)
+3. Button: **Generate Prompt**
+4. Show final prompt preview
+5. Allow:
+
+   * Copy
+   * Inject (see Feature #2)
+
+---
+
+### Edge Cases
+
+* If no variables → behave like normal prompt
+* Missing values → block generation
+* Duplicate variable names → de-duplicate automatically
+* Escaped `{}` not supported in v1
+
+---
+
+### Acceptance Criteria
+
+* Variables auto-detected
+* User must fill all variables
+* Final prompt is correctly substituted
+* Original template remains unchanged
+
+---
+
+## 2️⃣ One-Click Prompt Injection
+
+### Feature Name
+
+**One-Click Prompt Injection**
+
+---
+
+### Goal
+
+Insert a prompt **directly into the active AI input field** instead of copying to clipboard.
+
+---
+
+### Functional Description
+
+When the user clicks **Inject Prompt**:
+
+* The extension detects the currently focused text input
+* Inserts the prompt content at cursor position
+* Does NOT overwrite existing text unless explicitly selected
+
+Supported targets:
+
+* ChatGPT
+* Claude
+* Gemini
+* Any `<textarea>` or `contenteditable` input
+
+---
+
+### Technical Requirements
+
+* Use a **content script**
+* Inject script only on user action
+* Must support:
+
+  * `<textarea>`
+  * `<input type="text">`
+  * `contenteditable=true`
+
+---
+
+### Injection Logic
+
+1. Identify active element
+2. Validate it is editable
+3. Insert text using:
+
+   * `value` manipulation OR
+   * `document.execCommand` fallback
+4. Trigger `input` and `change` events
+
+---
+
+### UI Requirements
+
+Each prompt card must have:
+
+* **Copy** button
+* **Inject** button
+
+If injection fails:
+
+* Fallback to clipboard copy
+* Show warning toast
+
+---
+
+### Edge Cases
+
+* No focused input → show error
+* Read-only input → block injection
+* Multiple AI tabs → inject only into active tab
+
+---
+
+### Acceptance Criteria
+
+* Prompt appears instantly in input box
+* Cursor moves to end of inserted text
+* No page reload
+* No console errors
+
+---
+
+## 3️⃣ Prompt Usage Context (“When to use this”)
+
+### Feature Name
+
+**Prompt Usage Context Metadata**
+
+---
+
+### Goal
+
+Attach **usage knowledge** to prompts so users know **when and how** to use them effectively.
+
+---
+
+### Functional Description
+
+Each prompt can store contextual metadata explaining:
+
+* When to use it
+* Best AI model
+* Known limitations
+
+This metadata is **not copied or injected**, only displayed.
+
+---
+
+### Data Model Extension
 
 ```json
-["storage", "clipboardWrite", "contextMenus"]
+{
+  "usage_context": {
+    "best_use_case": "Explain complex financial documents",
+    "recommended_model": "GPT-4 / Claude 3",
+    "limitations": "Struggles with scanned PDFs"
+  }
+}
 ```
 
-* Background must use `service_worker`
-* Popup must be `popup.html`
+---
+
+### UI Requirements
+
+* Editable section in:
+
+  * Prompt creation
+  * Prompt edit view
+* Read-only preview in prompt list (collapsed)
+* Expandable “ℹ️ Context” section
 
 ---
 
-## 🎨 UI REQUIREMENTS
+### Behavior Rules
 
-### popup.html
-
-Must include:
-
-* Title input
-* Prompt textarea
-* Tags input
-* Save button
-* Search input
-* Prompt list container
-
-### popup.css
-
-* Minimal, clean layout
-* Readable typography
-* Scrollable prompt list
-* Responsive popup width
+* Optional but strongly encouraged
+* Does not affect search by default
+* Displayed during prompt selection
 
 ---
 
-## ⚙ popup.js LOGIC (REQUIRED)
+### Edge Cases
 
-Implement:
-
-* Load prompts on startup
-* Save prompt with validation
-* Render prompt list
-* Search prompts
-* Copy prompt
-* Delete prompt
-* Update storage and UI immediately
-
-Prompts should be sorted by `updated_at` descending.
+* Empty context → hide section
+* Long text → truncate with “Show more”
 
 ---
 
-## ⚙ background.js LOGIC (REQUIRED)
+### Acceptance Criteria
 
-* Register context menu on install
-* Handle context menu clicks
-* Save selected text as prompt
-* Persist to storage correctly
-
----
-
-## 🛠 options.html + options.js (ADVANCED MANAGEMENT)
-
-Must support:
-
-* Viewing all prompts
-* Editing prompt fields
-* Bulk delete
-* Export prompts as JSON
-* Import prompts from JSON
+* Metadata persists correctly
+* Editing context updates prompt
+* Context is never copied/injected
 
 ---
 
-## 🚫 CONSTRAINTS (ABSOLUTE)
+## 4️⃣ Fast Semantic Search
 
-* ❌ No frameworks (React, Vue, etc.)
-* ❌ No external APIs
-* ❌ No AI calls
-* ❌ No placeholders
-* ❌ No unimplemented features
-* ❌ No comments saying “left for later”
+### Feature Name
+
+**Fast Semantic Search (Local)**
 
 ---
 
-## ✅ DEFINITION OF DONE
+### Goal
 
-Your output is complete ONLY IF:
-
-* All files are fully implemented
-* Extension runs without errors
-* Prompts persist across browser restarts
-* Context menu works correctly
-* UI is usable and responsive
-* Code is clean, modular, and production-grade
+Enable **instant retrieval** of prompts by intent, keywords, or tags.
 
 ---
 
-## 📌 OUTPUT FORMAT (VERY IMPORTANT)
+### Functional Description
 
-* Output EACH FILE clearly separated
-* Use exact filenames as headers
-* Include COMPLETE code for every file
-* Do NOT explain the code
-* Do NOT summarize
-* Do NOT skip any file
+Search input filters prompts in real time based on:
 
-Begin now.
+* Title
+* Prompt content
+* Tags
+* Usage context fields
+
+Search is **case-insensitive** and **token-based**.
+
+---
+
+### Search Logic
+
+For each prompt:
+
+* Concatenate searchable fields
+* Normalize (lowercase)
+* Match if ALL query tokens exist
+
+Example:
+Search:
+
+```
+summarize finance
+```
+
+Matches prompts containing both terms anywhere.
+
+---
+
+### Performance Requirements
+
+* No debounce delay
+* Works with 500+ prompts
+* No blocking UI thread
+
+---
+
+### UI Requirements
+
+* Search input at top
+* Results update on every keystroke
+* Highlight matching text (optional)
+
+---
+
+### Edge Cases
+
+* Empty search → show all
+* No matches → show empty state
+* Special characters ignored
+
+---
+
+### Acceptance Criteria
+
+* Search feels instant
+* Results are accurate
+* No flickering or lag
+
+---
+
+## 🔑 Codex Implementation Rules (IMPORTANT)
+
+* Implement features incrementally
+* Do NOT hardcode AI providers
+* No external APIs required
+* All logic must be local-first
+* Code must be readable and modular
+
+---
