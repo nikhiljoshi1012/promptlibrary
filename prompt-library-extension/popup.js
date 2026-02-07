@@ -97,6 +97,30 @@ async function savePrompts(prompts) {
   });
 }
 
+async function loadPromptDraft() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['promptDraft'], (result) => {
+      resolve(result.promptDraft || null);
+    });
+  });
+}
+
+async function savePromptDraft(draft) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ promptDraft: draft }, () => {
+      resolve();
+    });
+  });
+}
+
+async function clearPromptDraft() {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(['promptDraft'], () => {
+      resolve();
+    });
+  });
+}
+
 function formatDate(timestamp) {
   const date = new Date(timestamp);
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
@@ -434,6 +458,49 @@ document.addEventListener('DOMContentLoaded', async () => {
   const searchInput = document.getElementById('searchInput');
   const togglePromptFormBtn = document.getElementById('togglePromptFormBtn');
 
+  const applyDraftToForm = (draft) => {
+    if (!draft) {
+      return;
+    }
+
+    titleInput.value = draft.title || '';
+    promptInput.value = draft.promptContent || '';
+    tagsInput.value = draft.tags || '';
+    sourceUrlInput.value = draft.sourceUrl || '';
+    bestUseCaseInput.value = draft.bestUseCase || '';
+    recommendedModelInput.value = draft.recommendedModel || '';
+    limitationsInput.value = draft.limitations || '';
+  };
+
+  const collectDraftFromForm = () => ({
+    title: titleInput.value,
+    promptContent: promptInput.value,
+    tags: tagsInput.value,
+    sourceUrl: sourceUrlInput.value,
+    bestUseCase: bestUseCaseInput.value,
+    recommendedModel: recommendedModelInput.value,
+    limitations: limitationsInput.value
+  });
+
+  let draftSaveTimer = null;
+  const scheduleDraftSave = () => {
+    if (draftSaveTimer) {
+      clearTimeout(draftSaveTimer);
+    }
+    draftSaveTimer = setTimeout(() => {
+      savePromptDraft(collectDraftFromForm());
+    }, 250);
+  };
+
+  const promptDraft = await loadPromptDraft();
+  if (promptDraft) {
+    applyDraftToForm(promptDraft);
+    if (promptForm.classList.contains('collapsed')) {
+      promptForm.classList.remove('collapsed');
+      togglePromptFormBtn.textContent = 'Hide Form';
+    }
+  }
+
   document.getElementById('closeUseModal').addEventListener('click', closeUseModal);
   document.getElementById('usePromptModal').addEventListener('click', (e) => {
     if (e.target.id === 'usePromptModal') {
@@ -488,6 +555,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       promptForm.classList.add('collapsed');
       togglePromptFormBtn.textContent = 'Add New Prompt';
     }
+  });
+
+  [
+    titleInput,
+    promptInput,
+    tagsInput,
+    sourceUrlInput,
+    bestUseCaseInput,
+    recommendedModelInput,
+    limitationsInput
+  ].forEach((input) => {
+    input.addEventListener('input', scheduleDraftSave);
+    input.addEventListener('change', scheduleDraftSave);
   });
 
   promptForm.addEventListener('submit', async (e) => {
@@ -547,6 +627,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     bestUseCaseInput.value = '';
     recommendedModelInput.value = '';
     limitationsInput.value = '';
+
+    await clearPromptDraft();
 
     renderPrompts(existingPrompts);
 
