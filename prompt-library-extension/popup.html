@@ -9,7 +9,10 @@
 <body>
   <div class="container">
     <header>
-      <h1>Prompt Library</h1>
+      <div class="title-block">
+        <h1>Prompt Library</h1>
+        <p class="subtitle">Capture, refine, and deploy your best prompts.</p>
+      </div>
     </header>
     
     <section class="add-prompt-section">
@@ -17,15 +20,23 @@
         <h2>Add New Prompt</h2>
         <button type="button" class="btn-secondary" id="togglePromptFormBtn">Add New Prompt</button>
       </div>
+      <div class="draft-status" id="draftStatus" aria-live="polite">Autosave on</div>
       <form id="promptForm" class="collapsed">
         <div class="form-group">
-          <label for="titleInput">Title *</label>
+          <div class="label-row">
+            <label for="titleInput">Title *</label>
+            <span class="char-count" id="titleCharCount">0/80</span>
+          </div>
           <input type="text" id="titleInput" placeholder="Enter prompt title" required>
         </div>
         
         <div class="form-group">
-          <label for="promptInput">Prompt Content *</label>
+          <div class="label-row">
+            <label for="promptInput">Prompt Content *</label>
+            <span class="char-count" id="promptCharCount">0/1200</span>
+          </div>
           <textarea id="promptInput" placeholder="Enter your prompt" rows="4" required></textarea>
+          <p class="field-hint">Tip: Use {brackets} to create variables for templates.</p>
         </div>
         
         <div class="form-group">

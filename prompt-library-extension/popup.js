@@ -126,6 +126,10 @@ function formatDate(timestamp) {
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 }
 
+function formatTime(timestamp) {
+  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 function showToast(message, duration = 2500) {
   const toast = document.getElementById('toast');
   toast.textContent = message;
@@ -457,6 +461,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   const limitationsInput = document.getElementById('limitationsInput');
   const searchInput = document.getElementById('searchInput');
   const togglePromptFormBtn = document.getElementById('togglePromptFormBtn');
+  const draftStatus = document.getElementById('draftStatus');
+  const titleCharCount = document.getElementById('titleCharCount');
+  const promptCharCount = document.getElementById('promptCharCount');
+
+  const TITLE_LIMIT = 80;
+  const PROMPT_LIMIT = 1200;
+
+  const setDraftStatus = (state, message) => {
+    if (!draftStatus) {
+      return;
+    }
+    draftStatus.dataset.state = state;
+    draftStatus.textContent = message;
+  };
+
+  const updateCharCount = (input, label, limit) => {
+    if (!label) {
+      return;
+    }
+    const count = input.value.length;
+    label.textContent = `${count}/${limit}`;
+    label.classList.toggle('over-limit', count > limit);
+  };
+
+  const updateCharCounts = () => {
+    updateCharCount(titleInput, titleCharCount, TITLE_LIMIT);
+    updateCharCount(promptInput, promptCharCount, PROMPT_LIMIT);
+  };
 
   const applyDraftToForm = (draft) => {
     if (!draft) {
@@ -470,25 +502,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     bestUseCaseInput.value = draft.bestUseCase || '';
     recommendedModelInput.value = draft.recommendedModel || '';
     limitationsInput.value = draft.limitations || '';
+
+    updateCharCounts();
   };
 
-  const collectDraftFromForm = () => ({
-    title: titleInput.value,
-    promptContent: promptInput.value,
-    tags: tagsInput.value,
-    sourceUrl: sourceUrlInput.value,
-    bestUseCase: bestUseCaseInput.value,
-    recommendedModel: recommendedModelInput.value,
-    limitations: limitationsInput.value
-  });
+  const collectDraftFromForm = () => {
+    const draft = {
+      title: titleInput.value,
+      promptContent: promptInput.value,
+      tags: tagsInput.value,
+      sourceUrl: sourceUrlInput.value,
+      bestUseCase: bestUseCaseInput.value,
+      recommendedModel: recommendedModelInput.value,
+      limitations: limitationsInput.value
+    };
+
+    const hasValue = Object.values(draft).some((value) => value && value.trim());
+    return hasValue ? draft : null;
+  };
 
   let draftSaveTimer = null;
   const scheduleDraftSave = () => {
     if (draftSaveTimer) {
       clearTimeout(draftSaveTimer);
     }
+    setDraftStatus('saving', 'Saving draft...');
     draftSaveTimer = setTimeout(() => {
-      savePromptDraft(collectDraftFromForm());
+      const draft = collectDraftFromForm();
+      if (!draft) {
+        clearPromptDraft();
+        setDraftStatus('idle', 'Autosave on');
+        return;
+      }
+      savePromptDraft(draft).then(() => {
+        setDraftStatus('saved', `Draft saved · ${formatTime(Date.now())}`);
+      });
     }, 250);
   };
 
@@ -499,6 +547,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       promptForm.classList.remove('collapsed');
       togglePromptFormBtn.textContent = 'Hide Form';
     }
+    setDraftStatus('restored', 'Draft restored');
+  } else {
+    setDraftStatus('idle', 'Autosave on');
   }
 
   document.getElementById('closeUseModal').addEventListener('click', closeUseModal);
@@ -566,9 +617,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     recommendedModelInput,
     limitationsInput
   ].forEach((input) => {
-    input.addEventListener('input', scheduleDraftSave);
+    input.addEventListener('input', () => {
+      updateCharCounts();
+      scheduleDraftSave();
+    });
     input.addEventListener('change', scheduleDraftSave);
   });
+
+  updateCharCounts();
 
   promptForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -629,6 +685,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     limitationsInput.value = '';
 
     await clearPromptDraft();
+    setDraftStatus('idle', 'Autosave on');
+    updateCharCounts();
 
     renderPrompts(existingPrompts);
 
