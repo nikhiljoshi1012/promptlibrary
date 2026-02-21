@@ -137,6 +137,15 @@ chrome.storage.local.get(['prompts'], (result) => {
 - No data is transmitted to external servers
 - No analytics or tracking
 - No external API calls
+- Full policy: see `PRIVACY_POLICY.md`
+
+## Permission Justification
+
+- `storage`: Persist prompts and draft content locally.
+- `clipboardWrite`: Copy prompts to clipboard from popup actions.
+- `contextMenus`: Add "Save as Prompt" on selected text.
+- `activeTab`: Target the currently active tab for prompt injection.
+- `scripting`: Inject `contentScript.js` when user requests prompt injection.
 
 ## Development
 
@@ -149,7 +158,7 @@ To modify the extension:
 
 ## License
 
-This project is open source and available for use and modification.
+MIT. See `LICENSE`.
 
 ## Support
 

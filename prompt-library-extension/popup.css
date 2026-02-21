@@ -331,6 +331,18 @@ h2 {
   box-shadow: 0 6px 12px rgba(61, 125, 154, 0.3);
 }
 
+.btn-icon {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 50%;
+}
+
 .btn-delete {
   background-color: var(--danger);
 }

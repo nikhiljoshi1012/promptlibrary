@@ -7,12 +7,85 @@ function generateUUID() {
 }
 
 function escapeHtml(unsafe) {
-  return unsafe
+  return String(unsafe ?? '')
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function sanitizeText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function sanitizeNullableText(value) {
+  const text = sanitizeText(value);
+  return text ? text : null;
+}
+
+function sanitizeTags(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const unique = new Set();
+  value.forEach((tag) => {
+    const cleanTag = sanitizeText(tag);
+    if (cleanTag) {
+      unique.add(cleanTag);
+    }
+  });
+  return Array.from(unique);
+}
+
+function sanitizeUsageContext(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const bestUseCase = sanitizeText(value.best_use_case);
+  const recommendedModel = sanitizeText(value.recommended_model);
+  const limitations = sanitizeText(value.limitations);
+
+  if (!bestUseCase && !recommendedModel && !limitations) {
+    return null;
+  }
+
+  return {
+    best_use_case: bestUseCase,
+    recommended_model: recommendedModel,
+    limitations
+  };
+}
+
+function normalizePrompt(rawPrompt) {
+  if (!rawPrompt || typeof rawPrompt !== 'object') {
+    return null;
+  }
+
+  const title = sanitizeText(rawPrompt.title);
+  const promptContent = sanitizeText(rawPrompt.prompt_content);
+  if (!title || !promptContent) {
+    return null;
+  }
+
+  const now = Date.now();
+  const createdAt = Number.isFinite(rawPrompt.created_at) ? rawPrompt.created_at : now;
+  const updatedAt = Number.isFinite(rawPrompt.updated_at) ? rawPrompt.updated_at : createdAt;
+  const { variables } = parseVariables(promptContent);
+
+  return {
+    id: sanitizeText(rawPrompt.id) || generateUUID(),
+    title,
+    prompt_content: promptContent,
+    tags: sanitizeTags(rawPrompt.tags),
+    source_url: sanitizeNullableText(rawPrompt.source_url),
+    is_template: variables.length > 0,
+    variables,
+    usage_context: sanitizeUsageContext(rawPrompt.usage_context),
+    created_at: createdAt,
+    updated_at: updatedAt
+  };
 }
 
 function escapeRegExp(value) {
@@ -84,7 +157,11 @@ function buildSearchableText(prompt) {
 async function loadPrompts() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['prompts'], (result) => {
-      resolve(result.prompts || []);
+      const storedPrompts = Array.isArray(result.prompts) ? result.prompts : [];
+      const normalizedPrompts = storedPrompts
+        .map(normalizePrompt)
+        .filter((prompt) => Boolean(prompt));
+      resolve(normalizedPrompts);
     });
   });
 }
@@ -164,13 +241,14 @@ function renderPrompts(prompts) {
       ? `<div class="prompt-meta">Source: ${escapeHtml(prompt.source_url)}</div>`
       : '';
 
-    const { variables } = parseVariables(prompt.prompt_content || '');
+    const promptContent = prompt.prompt_content || '';
+    const { variables } = parseVariables(promptContent);
     const isTemplate = prompt.is_template || variables.length > 0;
     const templateBadge = isTemplate ? `<span class="prompt-badge">Template</span>` : '';
 
-    const contentPreview = prompt.prompt_content.length > 200
-      ? prompt.prompt_content.substring(0, 200) + '...'
-      : prompt.prompt_content;
+    const contentPreview = promptContent.length > 200
+      ? promptContent.substring(0, 200) + '...'
+      : promptContent;
 
     const usageContext = prompt.usage_context || {};
     const hasContext = usageContext.best_use_case || usageContext.recommended_model || usageContext.limitations;
@@ -190,7 +268,7 @@ function renderPrompts(prompts) {
         <div class="prompt-header">
           <div class="prompt-title">${escapeHtml(prompt.title)}${templateBadge}</div>
           <div class="prompt-actions">
-            <button class="btn-use" data-id="${escapeHtml(prompt.id)}">Use</button>
+            <button class="btn-use" data-id="${escapeHtml(prompt.id)}">View</button>
             <button class="btn-copy" data-id="${escapeHtml(prompt.id)}">Copy</button>
             <button class="btn-inject" data-id="${escapeHtml(prompt.id)}">Inject</button>
             <button class="btn-delete" data-id="${escapeHtml(prompt.id)}">Delete</button>
@@ -421,6 +499,10 @@ function attachEventListeners() {
   document.querySelectorAll('.btn-delete').forEach(button => {
     button.addEventListener('click', async (e) => {
       const promptId = e.target.dataset.id;
+      const confirmed = window.confirm('Delete this prompt?');
+      if (!confirmed) {
+        return;
+      }
       const prompts = await loadPrompts();
       const updatedPrompts = prompts.filter(p => p.id !== promptId);
 
@@ -543,10 +625,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const promptDraft = await loadPromptDraft();
   if (promptDraft) {
     applyDraftToForm(promptDraft);
-    if (promptForm.classList.contains('collapsed')) {
-      promptForm.classList.remove('collapsed');
-      togglePromptFormBtn.textContent = 'Hide Form';
-    }
     setDraftStatus('restored', 'Draft restored');
   } else {
     setDraftStatus('idle', 'Autosave on');
@@ -600,11 +678,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const isCollapsed = promptForm.classList.contains('collapsed');
     if (isCollapsed) {
       promptForm.classList.remove('collapsed');
-      togglePromptFormBtn.textContent = 'Hide Form';
+      togglePromptFormBtn.textContent = '-';
+      togglePromptFormBtn.title = 'hide form';
       titleInput.focus();
     } else {
       promptForm.classList.add('collapsed');
-      togglePromptFormBtn.textContent = 'Add New Prompt';
+      togglePromptFormBtn.textContent = '+';
+      togglePromptFormBtn.title = 'make a new prompt';
     }
   });
 
@@ -691,7 +771,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderPrompts(existingPrompts);
 
     promptForm.classList.add('collapsed');
-    togglePromptFormBtn.textContent = 'Add New Prompt';
+    togglePromptFormBtn.textContent = '+';
+    togglePromptFormBtn.title = 'make a new prompt';
   });
 
   searchInput.addEventListener('input', (e) => {

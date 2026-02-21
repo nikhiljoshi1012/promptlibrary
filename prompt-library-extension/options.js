@@ -1,12 +1,93 @@
 let selectedPrompts = new Set();
 
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 function escapeHtml(unsafe) {
-  return unsafe
+  return String(unsafe ?? '')
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function sanitizeText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function sanitizeNullableText(value) {
+  const text = sanitizeText(value);
+  return text ? text : null;
+}
+
+function sanitizeTags(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const unique = new Set();
+  value.forEach((tag) => {
+    const cleanTag = sanitizeText(tag);
+    if (cleanTag) {
+      unique.add(cleanTag);
+    }
+  });
+  return Array.from(unique);
+}
+
+function sanitizeUsageContext(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const bestUseCase = sanitizeText(value.best_use_case);
+  const recommendedModel = sanitizeText(value.recommended_model);
+  const limitations = sanitizeText(value.limitations);
+
+  if (!bestUseCase && !recommendedModel && !limitations) {
+    return null;
+  }
+
+  return {
+    best_use_case: bestUseCase,
+    recommended_model: recommendedModel,
+    limitations
+  };
+}
+
+function normalizePrompt(rawPrompt) {
+  if (!rawPrompt || typeof rawPrompt !== 'object') {
+    return null;
+  }
+
+  const title = sanitizeText(rawPrompt.title);
+  const promptContent = sanitizeText(rawPrompt.prompt_content);
+  if (!title || !promptContent) {
+    return null;
+  }
+
+  const now = Date.now();
+  const createdAt = Number.isFinite(rawPrompt.created_at) ? rawPrompt.created_at : now;
+  const updatedAt = Number.isFinite(rawPrompt.updated_at) ? rawPrompt.updated_at : createdAt;
+  const variables = parseVariables(promptContent);
+
+  return {
+    id: sanitizeText(rawPrompt.id) || generateUUID(),
+    title,
+    prompt_content: promptContent,
+    tags: sanitizeTags(rawPrompt.tags),
+    source_url: sanitizeNullableText(rawPrompt.source_url),
+    is_template: variables.length > 0,
+    variables,
+    usage_context: sanitizeUsageContext(rawPrompt.usage_context),
+    created_at: createdAt,
+    updated_at: updatedAt
+  };
 }
 
 function normalizeVariableName(name) {
@@ -43,7 +124,11 @@ function parseVariables(promptContent) {
 async function loadPrompts() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['prompts'], (result) => {
-      resolve(result.prompts || []);
+      const storedPrompts = Array.isArray(result.prompts) ? result.prompts : [];
+      const normalizedPrompts = storedPrompts
+        .map(normalizePrompt)
+        .filter((prompt) => Boolean(prompt));
+      resolve(normalizedPrompts);
     });
   });
 }
@@ -77,7 +162,7 @@ function updateStats(prompts) {
   let totalCharacters = 0;
   
   prompts.forEach(prompt => {
-    totalCharacters += prompt.prompt_content.length;
+    totalCharacters += (prompt.prompt_content || '').length;
     if (prompt.tags) {
       prompt.tags.forEach(tag => uniqueTags.add(tag));
     }
@@ -116,8 +201,9 @@ function renderTable(prompts) {
       </thead>
       <tbody>
         ${sortedPrompts.map(prompt => {
-          const contentPreview = prompt.prompt_content.substring(0, 100);
-          const previewText = prompt.prompt_content.length > 100 ? contentPreview + '...' : contentPreview;
+          const promptContent = prompt.prompt_content || '';
+          const contentPreview = promptContent.substring(0, 100);
+          const previewText = promptContent.length > 100 ? contentPreview + '...' : contentPreview;
           
           const tagsHtml = prompt.tags && prompt.tags.length > 0
             ? prompt.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')
@@ -250,8 +336,21 @@ async function importPrompts(file) {
         
         const existingPrompts = await loadPrompts();
         const existingIds = new Set(existingPrompts.map(p => p.id));
-        
-        const newPrompts = importedPrompts.filter(p => !existingIds.has(p.id));
+        const validImportedPrompts = importedPrompts
+          .map(normalizePrompt)
+          .filter((prompt) => Boolean(prompt));
+        const dedupedImportedPrompts = [];
+        const importedIds = new Set();
+
+        validImportedPrompts.forEach((prompt) => {
+          if (importedIds.has(prompt.id)) {
+            return;
+          }
+          importedIds.add(prompt.id);
+          dedupedImportedPrompts.push(prompt);
+        });
+
+        const newPrompts = dedupedImportedPrompts.filter(p => !existingIds.has(p.id));
         const mergedPrompts = [...existingPrompts, ...newPrompts];
         
         await savePrompts(mergedPrompts);
