@@ -13,6 +13,7 @@
         <h1>Prompt Library</h1>
         <p class="subtitle">Capture, refine, and deploy your best prompts.</p>
       </div>
+      <button type="button" class="btn-dashboard" id="openDashboardBtn" title="Open Dashboard">⚙️ Dashboard</button>
     </header>
     
     <section class="add-prompt-section">
@@ -94,6 +95,59 @@
         <button class="btn-secondary" id="useModalCopy">Copy</button>
         <button class="btn-primary" id="useModalInject">Inject</button>
       </div>
+    </div>
+  </div>
+
+  <div id="editPromptModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="close-btn" id="closeEditModal">&times;</span>
+        <h2>Edit Prompt</h2>
+      </div>
+
+      <form id="editPromptForm">
+        <input type="hidden" id="editPromptId">
+        
+        <div class="form-group">
+          <label for="editPromptTitle">Title *</label>
+          <input type="text" id="editPromptTitle" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="editPromptContent">Prompt Content *</label>
+          <textarea id="editPromptContent" rows="6" required></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label for="editPromptTags">Tags (comma-separated)</label>
+          <input type="text" id="editPromptTags">
+        </div>
+        
+        <div class="form-group">
+          <label for="editPromptSourceUrl">Source URL</label>
+          <input type="url" id="editPromptSourceUrl">
+        </div>
+        
+        <div class="form-group">
+          <label for="editPromptBestUseCase">When to use this</label>
+          <input type="text" id="editPromptBestUseCase">
+        </div>
+        
+        <div class="form-group">
+          <label for="editPromptRecommendedModel">Recommended model</label>
+          <input type="text" id="editPromptRecommendedModel">
+        </div>
+        
+        <div class="form-group">
+          <label for="editPromptLimitations">Limitations</label>
+          <textarea id="editPromptLimitations" rows="2"></textarea>
+        </div>
+        
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="cancelEditBtn">Cancel</button>
+          <button type="submit" class="btn-primary">Save Changes</button>
+        </div>
+      </form>
     </div>
   </div>
 

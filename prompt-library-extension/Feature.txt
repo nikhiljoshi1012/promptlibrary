@@ -1,0 +1,7 @@
+Usage Analytics & "Favorites"
+Track how many times a prompt is injected and when it was last used. Add a "Favorite" toggle and sort the popup view by "Most Used" or "Recently Used" for quicker access to frequent prompts.
+
+
+
+Context Menu (Right-Click) Integration
+Allow users to right-click inside any text box on a webpage, open a "Prompt Library" context menu, and select a prompt to inject instantly without needing to open the extension popup.

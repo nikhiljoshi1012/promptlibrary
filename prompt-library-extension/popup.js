@@ -58,6 +58,31 @@ function sanitizeUsageContext(value) {
   };
 }
 
+function sanitizePromptVersions(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((version) => {
+      if (!version || typeof version !== 'object') {
+        return null;
+      }
+
+      const content = sanitizeText(version.content);
+      if (!content) {
+        return null;
+      }
+
+      return {
+        id: sanitizeText(version.id) || generateUUID(),
+        content,
+        saved_at: Number.isFinite(version.saved_at) ? version.saved_at : Date.now()
+      };
+    })
+    .filter((version) => Boolean(version));
+}
+
 function normalizePrompt(rawPrompt) {
   if (!rawPrompt || typeof rawPrompt !== 'object') {
     return null;
@@ -73,6 +98,7 @@ function normalizePrompt(rawPrompt) {
   const createdAt = Number.isFinite(rawPrompt.created_at) ? rawPrompt.created_at : now;
   const updatedAt = Number.isFinite(rawPrompt.updated_at) ? rawPrompt.updated_at : createdAt;
   const { variables } = parseVariables(promptContent);
+  const versions = sanitizePromptVersions(rawPrompt.versions);
 
   return {
     id: sanitizeText(rawPrompt.id) || generateUUID(),
@@ -82,6 +108,7 @@ function normalizePrompt(rawPrompt) {
     source_url: sanitizeNullableText(rawPrompt.source_url),
     is_template: variables.length > 0,
     variables,
+    versions,
     usage_context: sanitizeUsageContext(rawPrompt.usage_context),
     created_at: createdAt,
     updated_at: updatedAt
@@ -269,6 +296,7 @@ function renderPrompts(prompts) {
           <div class="prompt-title">${escapeHtml(prompt.title)}${templateBadge}</div>
           <div class="prompt-actions">
             <button class="btn-use" data-id="${escapeHtml(prompt.id)}">View</button>
+            <button class="btn-edit" data-id="${escapeHtml(prompt.id)}">Edit</button>
             <button class="btn-copy" data-id="${escapeHtml(prompt.id)}">Copy</button>
             <button class="btn-inject" data-id="${escapeHtml(prompt.id)}">Inject</button>
             <button class="btn-delete" data-id="${escapeHtml(prompt.id)}">Delete</button>
@@ -417,6 +445,29 @@ function closeUseModal() {
   modal.setAttribute('aria-hidden', 'true');
 }
 
+function openEditModal(prompt) {
+  const modal = document.getElementById('editPromptModal');
+  document.getElementById('editPromptId').value = prompt.id;
+  document.getElementById('editPromptTitle').value = prompt.title;
+  document.getElementById('editPromptContent').value = prompt.prompt_content;
+  document.getElementById('editPromptTags').value = prompt.tags ? prompt.tags.join(', ') : '';
+  document.getElementById('editPromptSourceUrl').value = prompt.source_url || '';
+  
+  const usageContext = prompt.usage_context || {};
+  document.getElementById('editPromptBestUseCase').value = usageContext.best_use_case || '';
+  document.getElementById('editPromptRecommendedModel').value = usageContext.recommended_model || '';
+  document.getElementById('editPromptLimitations').value = usageContext.limitations || '';
+  
+  modal.classList.add('active');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeEditModal() {
+  const modal = document.getElementById('editPromptModal');
+  modal.classList.remove('active');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
 function attachEventListeners() {
   document.querySelectorAll('.btn-copy').forEach(button => {
     button.addEventListener('click', async (e) => {
@@ -510,6 +561,17 @@ function attachEventListeners() {
       renderPrompts(updatedPrompts);
     });
   });
+
+  document.querySelectorAll('.btn-edit').forEach(button => {
+    button.addEventListener('click', async (e) => {
+      const promptId = e.target.dataset.id;
+      const prompts = await loadPrompts();
+      const prompt = prompts.find(p => p.id === promptId);
+      if (prompt) {
+        openEditModal(prompt);
+      }
+    });
+  });
 }
 
 async function searchPrompts(query) {
@@ -546,6 +608,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const draftStatus = document.getElementById('draftStatus');
   const titleCharCount = document.getElementById('titleCharCount');
   const promptCharCount = document.getElementById('promptCharCount');
+
+  document.getElementById('openDashboardBtn').addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
 
   const TITLE_LIMIT = 80;
   const PROMPT_LIMIT = 1200;
@@ -674,6 +740,91 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  document.getElementById('closeEditModal').addEventListener('click', closeEditModal);
+
+  document.getElementById('cancelEditBtn').addEventListener('click', closeEditModal);
+
+  document.getElementById('editPromptModal').addEventListener('click', (e) => {
+    if (e.target.id === 'editPromptModal') {
+      closeEditModal();
+    }
+  });
+
+  document.getElementById('editPromptForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const promptId = document.getElementById('editPromptId').value;
+    const title = document.getElementById('editPromptTitle').value.trim();
+    const content = document.getElementById('editPromptContent').value.trim();
+    const tagsString = document.getElementById('editPromptTags').value.trim();
+    const sourceUrl = document.getElementById('editPromptSourceUrl').value.trim();
+    const bestUseCase = document.getElementById('editPromptBestUseCase').value.trim();
+    const recommendedModel = document.getElementById('editPromptRecommendedModel').value.trim();
+    const limitations = document.getElementById('editPromptLimitations').value.trim();
+
+    if (!title || !content) {
+      showToast('Title and content are required.');
+      return;
+    }
+
+    const tags = tagsString
+      ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)
+      : [];
+
+    const usageContext = (bestUseCase || recommendedModel || limitations)
+      ? {
+          best_use_case: bestUseCase,
+          recommended_model: recommendedModel,
+          limitations
+        }
+      : null;
+
+    const { variables } = parseVariables(content);
+
+    const prompts = await loadPrompts();
+    const promptIndex = prompts.findIndex(p => p.id === promptId);
+
+    if (promptIndex !== -1) {
+      const previousPrompt = prompts[promptIndex];
+      const shouldSnapshot = previousPrompt.prompt_content !== content;
+      let versions = sanitizePromptVersions(previousPrompt.versions);
+
+      if (shouldSnapshot) {
+        const MAX_PROMPT_VERSIONS = 10;
+        versions = [
+          ...versions,
+          {
+            id: generateUUID(),
+            content: previousPrompt.prompt_content,
+            saved_at: Date.now()
+          }
+        ];
+        
+        if (versions.length > MAX_PROMPT_VERSIONS) {
+          versions = versions.slice(-MAX_PROMPT_VERSIONS);
+        }
+      }
+
+      prompts[promptIndex] = {
+        ...previousPrompt,
+        title,
+        prompt_content: content,
+        tags,
+        source_url: sourceUrl || null,
+        is_template: variables.length > 0,
+        variables,
+        versions,
+        usage_context: usageContext,
+        updated_at: Date.now()
+      };
+
+      await savePrompts(prompts);
+      renderPrompts(prompts);
+      closeEditModal();
+      showToast('Prompt updated successfully.');
+    }
+  });
+
   togglePromptFormBtn.addEventListener('click', () => {
     const isCollapsed = promptForm.classList.contains('collapsed');
     if (isCollapsed) {
@@ -747,6 +898,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       source_url: sourceUrl || null,
       is_template: variables.length > 0,
       variables,
+      versions: [],
       usage_context: usageContext,
       created_at: Date.now(),
       updated_at: Date.now()

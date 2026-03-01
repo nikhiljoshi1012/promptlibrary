@@ -45,10 +45,34 @@ header {
   padding: 18px 18px 20px;
   box-shadow: 0 8px 18px rgba(18, 72, 82, 0.3);
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .title-block {
   text-align: left;
+  flex: 1;
+}
+
+.btn-dashboard {
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fef9f2;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-dashboard:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-1px);
 }
 
 header h1 {
@@ -280,6 +304,7 @@ h2 {
 .btn-delete,
 .btn-inject,
 .btn-use,
+.btn-edit,
 .btn-secondary {
   padding: 6px 10px;
   border: none;
@@ -311,6 +336,15 @@ h2 {
 .btn-use:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 12px rgba(107, 91, 83, 0.3);
+}
+
+.btn-edit {
+  background-color: #7048e8;
+}
+
+.btn-edit:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px rgba(112, 72, 232, 0.3);
 }
 
 .btn-inject {

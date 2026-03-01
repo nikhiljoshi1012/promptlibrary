@@ -1,4 +1,5 @@
 let selectedPrompts = new Set();
+const MAX_PROMPT_VERSIONS = 10;
 
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -60,6 +61,41 @@ function sanitizeUsageContext(value) {
   };
 }
 
+function sanitizePromptVersions(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((version) => {
+      if (!version || typeof version !== 'object') {
+        return null;
+      }
+
+      const content = sanitizeText(version.content);
+      if (!content) {
+        return null;
+      }
+
+      return {
+        id: sanitizeText(version.id) || generateUUID(),
+        content,
+        saved_at: Number.isFinite(version.saved_at) ? version.saved_at : Date.now()
+      };
+    })
+    .filter((version) => Boolean(version));
+}
+
+function trimPromptVersions(versions) {
+  if (!Array.isArray(versions) || versions.length <= MAX_PROMPT_VERSIONS) {
+    return Array.isArray(versions) ? versions : [];
+  }
+
+  return [...versions]
+    .sort((a, b) => a.saved_at - b.saved_at)
+    .slice(-MAX_PROMPT_VERSIONS);
+}
+
 function normalizePrompt(rawPrompt) {
   if (!rawPrompt || typeof rawPrompt !== 'object') {
     return null;
@@ -75,6 +111,7 @@ function normalizePrompt(rawPrompt) {
   const createdAt = Number.isFinite(rawPrompt.created_at) ? rawPrompt.created_at : now;
   const updatedAt = Number.isFinite(rawPrompt.updated_at) ? rawPrompt.updated_at : createdAt;
   const variables = parseVariables(promptContent);
+  const versions = trimPromptVersions(sanitizePromptVersions(rawPrompt.versions));
 
   return {
     id: sanitizeText(rawPrompt.id) || generateUUID(),
@@ -84,6 +121,7 @@ function normalizePrompt(rawPrompt) {
     source_url: sanitizeNullableText(rawPrompt.source_url),
     is_template: variables.length > 0,
     variables,
+    versions,
     usage_context: sanitizeUsageContext(rawPrompt.usage_context),
     created_at: createdAt,
     updated_at: updatedAt
@@ -295,13 +333,58 @@ function openEditModal(prompt) {
   document.getElementById('editBestUseCase').value = usageContext.best_use_case || '';
   document.getElementById('editRecommendedModel').value = usageContext.recommended_model || '';
   document.getElementById('editLimitations').value = usageContext.limitations || '';
+  renderVersionHistory(prompt);
   
   modal.classList.add('active');
+}
+
+function renderVersionHistory(prompt) {
+  const container = document.getElementById('versionHistoryContainer');
+  if (!container) {
+    return;
+  }
+
+  const versions = trimPromptVersions(sanitizePromptVersions(prompt.versions));
+  if (versions.length === 0) {
+    container.innerHTML = '<div class="version-empty">No previous versions yet.</div>';
+    return;
+  }
+
+  const sortedVersions = [...versions].sort((a, b) => b.saved_at - a.saved_at);
+  container.innerHTML = sortedVersions.map((version, index) => {
+    const preview = version.content.length > 140
+      ? `${version.content.slice(0, 140)}...`
+      : version.content;
+
+    return `
+      <div class="version-item">
+        <div class="version-meta">${formatDate(version.saved_at)}</div>
+        <div class="version-preview">${escapeHtml(preview)}</div>
+        <button type="button" class="btn btn-secondary action-btn restore-version-btn" data-version-index="${index}">Restore</button>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.restore-version-btn').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      const index = Number.parseInt(event.currentTarget.dataset.versionIndex, 10);
+      if (Number.isNaN(index) || !sortedVersions[index]) {
+        return;
+      }
+
+      document.getElementById('editContent').value = sortedVersions[index].content;
+      showNotification('Version restored into editor. Save to apply.', 2200);
+    });
+  });
 }
 
 function closeEditModal() {
   const modal = document.getElementById('editModal');
   modal.classList.remove('active');
+  const container = document.getElementById('versionHistoryContainer');
+  if (container) {
+    container.innerHTML = '';
+  }
 }
 
 async function exportPrompts() {
@@ -477,14 +560,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     const promptIndex = prompts.findIndex(p => p.id === promptId);
     
     if (promptIndex !== -1) {
+      const previousPrompt = prompts[promptIndex];
+      const shouldSnapshot = previousPrompt.prompt_content !== content;
+      let versions = trimPromptVersions(sanitizePromptVersions(previousPrompt.versions));
+
+      if (shouldSnapshot) {
+        versions = trimPromptVersions([
+          ...versions,
+          {
+            id: generateUUID(),
+            content: previousPrompt.prompt_content,
+            saved_at: Date.now()
+          }
+        ]);
+      }
+
       prompts[promptIndex] = {
-        ...prompts[promptIndex],
+        ...previousPrompt,
         title,
         prompt_content: content,
         tags,
         source_url: sourceUrl || null,
         is_template: variables.length > 0,
         variables,
+        versions,
         usage_context: usageContext,
         updated_at: Date.now()
       };

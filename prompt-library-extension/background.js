@@ -25,6 +25,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         source_url: tab.url || null,
         is_template: false,
         variables: [],
+        versions: [],
         usage_context: null,
         created_at: Date.now(),
         updated_at: Date.now()
