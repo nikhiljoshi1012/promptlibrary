@@ -291,6 +291,9 @@ h2 {
   font-size: 15px;
   color: var(--ink);
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .prompt-actions {
@@ -391,6 +394,7 @@ h2 {
   font-size: 13px;
   margin-bottom: 8px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
   max-height: 100px;
   overflow: hidden;
@@ -468,6 +472,7 @@ h2 {
   padding: 16px;
   max-height: 80vh;
   overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--outline);
   box-shadow: var(--shadow);
   animation: rise 0.25s ease;
@@ -478,6 +483,12 @@ h2 {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+}
+
+.modal-header h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .close-btn {
@@ -505,8 +516,22 @@ h2 {
   border-radius: var(--radius-sm);
   padding: 10px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 13px;
   color: var(--ink);
+}
+
+#usePromptBody {
+  min-width: 0;
+}
+
+#usePromptBody label,
+.context-line,
+.prompt-meta,
+.tag {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .toast {

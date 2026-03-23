@@ -362,6 +362,7 @@ function openUseModal(prompt, initialResolved = '') {
 
   title.textContent = `Use: ${prompt.title}`;
   modalBody.innerHTML = '';
+  modal.dataset.rawPrompt = prompt.prompt_content || '';
 
   const { variables, mapping } = parseVariables(prompt.prompt_content || '');
   const isTemplate = prompt.is_template || variables.length > 0;
@@ -706,13 +707,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('useModalCopy').addEventListener('click', async () => {
     const modal = document.getElementById('usePromptModal');
     const resolvedPrompt = modal.dataset.resolvedPrompt || '';
-    if (!resolvedPrompt) {
-      showToast('Generate a prompt first.');
+    const rawPrompt = modal.dataset.rawPrompt || '';
+    const promptToCopy = resolvedPrompt || rawPrompt;
+
+    if (!promptToCopy) {
+      showToast('No prompt content available to copy.');
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(resolvedPrompt);
+      await navigator.clipboard.writeText(promptToCopy);
       showToast('Prompt copied.');
     } catch (error) {
       showToast('Copy failed.');
