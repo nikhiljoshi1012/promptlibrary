@@ -377,7 +377,7 @@ function attachCardListeners() {
           setTimeout(() => {
             e.currentTarget.textContent = '📋';
           }, 2000);
-          showToast('Prompt copied.');
+          showToast('Message copied to clipboard.');
         } catch (err) {
           showToast('Copy failed.');
         }
@@ -945,7 +945,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         await trackUsage(modal.dataset.promptId);
         await navigator.clipboard.writeText(promptToCopy);
-        showToast('Prompt copied.');
+        showToast('Message copied to clipboard.');
       } catch (error) {
         showToast('Copy failed.');
       }
