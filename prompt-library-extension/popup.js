@@ -111,7 +111,8 @@ function normalizePrompt(rawPrompt) {
     versions,
     usage_context: sanitizeUsageContext(rawPrompt.usage_context),
     created_at: createdAt,
-    updated_at: updatedAt
+    updated_at: updatedAt,
+    last_used: Number.isFinite(rawPrompt.last_used) ? rawPrompt.last_used : null
   };
 }
 
@@ -225,93 +226,263 @@ async function clearPromptDraft() {
   });
 }
 
-function formatDate(timestamp) {
-  const date = new Date(timestamp);
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-}
+function formatRelativeTime(timestamp) {
+  const now = Date.now();
+  const ms = now - timestamp;
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
 
-function formatTime(timestamp) {
-  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (seconds < 60) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  
+  return new Date(timestamp).toLocaleDateString();
 }
 
 function showToast(message, duration = 2500) {
   const toast = document.getElementById('toast');
+  if (!toast) return;
+  
   toast.textContent = message;
-  toast.classList.add('active');
-  setTimeout(() => toast.classList.remove('active'), duration);
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), duration);
 }
 
-function renderPrompts(prompts) {
-  const promptsList = document.getElementById('promptsList');
-  const promptCount = document.getElementById('promptCount');
+function switchView(viewName) {
+  const views = document.querySelectorAll('.view-container');
+  views.forEach(view => {
+    if (view.id === `${viewName}View`) {
+      view.classList.add('active');
+    } else {
+      view.classList.remove('active');
+    }
+  });
+  
+  updateNavigation(viewName);
+}
 
-  promptCount.textContent = prompts.length;
+function updateNavigation(viewName) {
+  const navButtons = document.querySelectorAll('.nav-btn');
+  navButtons.forEach(btn => {
+    if (btn.dataset.view === viewName) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+}
 
-  if (prompts.length === 0) {
-    promptsList.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-icon" aria-label="Empty prompt library">📝</div>
-        <div class="empty-state-text">No prompts yet. Create your first prompt above!</div>
+async function trackUsage(promptId) {
+  const prompts = await loadPrompts();
+  const prompt = prompts.find(p => p.id === promptId);
+  
+  if (prompt) {
+    prompt.last_used = Date.now();
+    await savePrompts(prompts);
+  }
+}
+
+function renderPromptCard(prompt) {
+  const { variables } = parseVariables(prompt.prompt_content || '');
+  const isTemplate = prompt.is_template || variables.length > 0;
+  const templateBadge = isTemplate ? `<span class="prompt-tag">TEMPLATE</span>` : '';
+  
+  const previewText = prompt.prompt_content.length > 150
+    ? prompt.prompt_content.substring(0, 150) + '...'
+    : prompt.prompt_content;
+  
+  const displayTime = prompt.last_used 
+    ? `Last used: ${formatRelativeTime(prompt.last_used)}`
+    : `Created: ${formatRelativeTime(prompt.created_at)}`;
+  
+  return `
+    <div class="prompt-card" data-id="${escapeHtml(prompt.id)}">
+      <div class="prompt-card-header">
+        <h3 class="prompt-title">${escapeHtml(prompt.title)}${templateBadge}</h3>
       </div>
-    `;
+      <div class="prompt-timestamp">${displayTime}</div>
+      <div class="prompt-preview"><code>${escapeHtml(previewText)}</code></div>
+      <div class="prompt-actions">
+        <button class="action-btn" data-id="${escapeHtml(prompt.id)}" data-action="view" title="View">👁</button>
+        <button class="action-btn" data-id="${escapeHtml(prompt.id)}" data-action="edit" title="Edit">✏️</button>
+        <button class="action-btn" data-id="${escapeHtml(prompt.id)}" data-action="copy" title="Copy">📋</button>
+        <button class="btn-inject" data-id="${escapeHtml(prompt.id)}">Inject</button>
+        <button class="action-btn delete" data-id="${escapeHtml(prompt.id)}" data-action="delete" title="Delete">🗑</button>
+      </div>
+    </div>
+  `;
+}
+
+async function renderArchiveList(prompts) {
+  const archiveList = document.getElementById('archiveList');
+  if (!archiveList) return;
+  
+  if (prompts.length === 0) {
+    archiveList.innerHTML = `<div class="empty-state"><p>No prompts yet. Create one to get started!</p></div>`;
+    return;
+  }
+  
+  const sortedPrompts = [...prompts].sort((a, b) => b.updated_at - a.updated_at);
+  archiveList.innerHTML = sortedPrompts.map(prompt => renderPromptCard(prompt)).join('');
+  attachCardListeners();
+}
+
+async function renderHistoryList(prompts) {
+  const historyList = document.getElementById('historyList');
+  if (!historyList) return;
+  
+  const usedPrompts = prompts
+    .filter(p => p.last_used !== null && p.last_used !== undefined)
+    .sort((a, b) => (b.last_used || 0) - (a.last_used || 0));
+  
+  if (usedPrompts.length === 0) {
+    historyList.innerHTML = `<div class="empty-state"><p>No recently used prompts.</p></div>`;
+    return;
+  }
+  
+  historyList.innerHTML = usedPrompts.map(prompt => renderPromptCard(prompt)).join('');
+  attachCardListeners();
+}
+
+function attachCardListeners() {
+  document.querySelectorAll('.action-btn').forEach(button => {
+    button.addEventListener('click', async (e) => {
+      const promptId = e.currentTarget.dataset.id;
+      const action = e.currentTarget.dataset.action;
+      const prompts = await loadPrompts();
+      const prompt = prompts.find(p => p.id === promptId);
+
+      if (!prompt) return;
+
+      if (action === 'view') {
+        openUseModal(prompt);
+      } else if (action === 'edit') {
+        openEditModal(prompt);
+      } else if (action === 'copy') {
+        const { variables } = parseVariables(prompt.prompt_content || '');
+        const isTemplate = prompt.is_template || variables.length > 0;
+
+        if (isTemplate) {
+          openUseModal(prompt);
+          return;
+        }
+
+        try {
+          await trackUsage(promptId);
+          await navigator.clipboard.writeText(prompt.prompt_content);
+          e.currentTarget.textContent = '✓';
+          setTimeout(() => {
+            e.currentTarget.textContent = '📋';
+          }, 2000);
+          showToast('Prompt copied.');
+        } catch (err) {
+          showToast('Copy failed.');
+        }
+      } else if (action === 'delete') {
+        const confirmed = window.confirm('Delete this prompt?');
+        if (!confirmed) return;
+
+        const updated = prompts.filter(p => p.id !== promptId);
+        await savePrompts(updated);
+        
+        const activeView = document.querySelector('.view-container.active');
+        if (activeView.id === 'archiveView') {
+          renderArchiveList(updated);
+        } else if (activeView.id === 'historyView') {
+          renderHistoryList(updated);
+        } else if (activeView.id === 'searchView') {
+          const searchInput = document.getElementById('advancedSearchInput');
+          await searchPromptsInView(searchInput.value);
+        }
+        showToast('Prompt deleted.');
+      }
+    });
+  });
+
+  document.querySelectorAll('.btn-inject').forEach(button => {
+    button.addEventListener('click', async (e) => {
+      const promptId = e.currentTarget.dataset.id;
+      const prompts = await loadPrompts();
+      const prompt = prompts.find(p => p.id === promptId);
+
+      if (!prompt) return;
+
+      const { variables } = parseVariables(prompt.prompt_content || '');
+      const isTemplate = prompt.is_template || variables.length > 0;
+      
+      if (isTemplate) {
+        openUseModal(prompt);
+        return;
+      }
+
+      await trackUsage(promptId);
+      const response = await injectPrompt(prompt.prompt_content);
+      if (response.success) {
+        showToast('Prompt injected.');
+      } else {
+        try {
+          await navigator.clipboard.writeText(prompt.prompt_content);
+          showToast('Injection failed. Copied to clipboard.');
+        } catch (error) {
+          showToast(response.message || 'Injection failed.');
+        }
+      }
+    });
+  });
+}
+
+async function searchPromptsInView(query) {
+  const prompts = await loadPrompts();
+  const searchResults = document.getElementById('searchResults');
+  if (!searchResults) return;
+
+  const tokens = tokenizeQuery(query);
+
+  if (tokens.length === 0) {
+    searchResults.innerHTML = `<div class="empty-state"><p>Enter a search query.</p></div>`;
     return;
   }
 
-  const sortedPrompts = [...prompts].sort((a, b) => b.updated_at - a.updated_at);
+  const filtered = prompts.filter(prompt => {
+    const searchable = buildSearchableText(prompt);
+    return tokens.every(token => searchable.includes(token));
+  });
 
-  promptsList.innerHTML = sortedPrompts.map(prompt => {
-    const tagsHtml = prompt.tags && prompt.tags.length > 0
-      ? `<div class="prompt-tags">${prompt.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`
-      : '';
+  if (filtered.length === 0) {
+    searchResults.innerHTML = `<div class="empty-state"><p>No prompts match your search.</p></div>`;
+    return;
+  }
 
-    const sourceHtml = prompt.source_url
-      ? `<div class="prompt-meta">Source: ${escapeHtml(prompt.source_url)}</div>`
-      : '';
+  searchResults.innerHTML = filtered.map(prompt => renderPromptCard(prompt)).join('');
+  attachCardListeners();
+}
 
-    const promptContent = prompt.prompt_content || '';
-    const { variables } = parseVariables(promptContent);
-    const isTemplate = prompt.is_template || variables.length > 0;
-    const templateBadge = isTemplate ? `<span class="prompt-badge">Template</span>` : '';
+function formatRelativeTime(timestamp) {
+  const now = Date.now();
+  const ms = now - timestamp;
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
 
-    const contentPreview = promptContent.length > 200
-      ? promptContent.substring(0, 200) + '...'
-      : promptContent;
+  if (seconds < 60) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  
+  return new Date(timestamp).toLocaleDateString();
+}
 
-    const usageContext = prompt.usage_context || {};
-    const hasContext = usageContext.best_use_case || usageContext.recommended_model || usageContext.limitations;
-    const contextHtml = hasContext
-      ? `
-        <details class="context-details">
-          <summary>ℹ️ Context</summary>
-          ${usageContext.best_use_case ? `<div class="context-line"><strong>Best use:</strong> ${escapeHtml(usageContext.best_use_case)}</div>` : ''}
-          ${usageContext.recommended_model ? `<div class="context-line"><strong>Model:</strong> ${escapeHtml(usageContext.recommended_model)}</div>` : ''}
-          ${usageContext.limitations ? `<div class="context-line"><strong>Limitations:</strong> ${escapeHtml(usageContext.limitations)}</div>` : ''}
-        </details>
-      `
-      : '';
-
-    return `
-      <div class="prompt-item" data-id="${escapeHtml(prompt.id)}">
-        <div class="prompt-header">
-          <div class="prompt-title">${escapeHtml(prompt.title)}${templateBadge}</div>
-          <div class="prompt-actions">
-            <button class="btn-use" data-id="${escapeHtml(prompt.id)}">View</button>
-            <button class="btn-edit" data-id="${escapeHtml(prompt.id)}">Edit</button>
-            <button class="btn-copy" data-id="${escapeHtml(prompt.id)}">Copy</button>
-            <button class="btn-inject" data-id="${escapeHtml(prompt.id)}">Inject</button>
-            <button class="btn-delete" data-id="${escapeHtml(prompt.id)}">Delete</button>
-          </div>
-        </div>
-        ${tagsHtml}
-        <div class="prompt-content">${escapeHtml(contentPreview)}</div>
-        ${contextHtml}
-        <div class="prompt-meta">Created: ${formatDate(prompt.created_at)}</div>
-        ${sourceHtml}
-      </div>
-    `;
-  }).join('');
-
-  attachEventListeners();
+function showToast(message, duration = 2500) {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+  
+  toast.textContent = message;
+  toast.classList.add('active');
+  setTimeout(() => toast.classList.remove('active'), duration);
 }
 
 async function injectPrompt(text) {
@@ -360,6 +531,7 @@ function openUseModal(prompt, initialResolved = '') {
   const modalBody = document.getElementById('usePromptBody');
   const title = document.getElementById('useModalTitle');
 
+  modal.dataset.promptId = prompt.id;
   title.textContent = `Use: ${prompt.title}`;
   modalBody.innerHTML = '';
   modal.dataset.rawPrompt = prompt.prompt_content || '';
@@ -469,469 +641,447 @@ function closeEditModal() {
   modal.setAttribute('aria-hidden', 'true');
 }
 
-function attachEventListeners() {
-  document.querySelectorAll('.btn-copy').forEach(button => {
-    button.addEventListener('click', async (e) => {
-      const promptId = e.target.dataset.id;
-      const prompts = await loadPrompts();
-      const prompt = prompts.find(p => p.id === promptId);
+document.addEventListener('DOMContentLoaded', async () => {
+  const prompts = await loadPrompts();
+  
+  // Initialize views
+  await renderArchiveList(prompts);
+  await renderHistoryList(prompts);
+  
+  // Bottom navigation listeners
+  const navButtons = document.querySelectorAll('.nav-btn');
+  navButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const viewName = button.dataset.view;
+      switchView(viewName);
+    });
+  });
 
-      if (!prompt) {
+  // Floating "+" button
+  const floatingAddBtn = document.getElementById('floatingAddBtn');
+  if (floatingAddBtn) {
+    floatingAddBtn.addEventListener('click', () => {
+      const quickAddModal = document.getElementById('quickAddModal');
+      if (quickAddModal) {
+        quickAddModal.classList.add('active');
+        quickAddModal.setAttribute('aria-hidden', 'false');
+      }
+    });
+  }
+
+  // Quick-add modal handlers
+  const quickAddModal = document.getElementById('quickAddModal');
+  if (quickAddModal) {
+    const closeQuickAddBtn = document.getElementById('closeQuickAddBtn');
+    if (closeQuickAddBtn) {
+      closeQuickAddBtn.addEventListener('click', () => {
+        quickAddModal.classList.remove('active');
+        quickAddModal.setAttribute('aria-hidden', 'true');
+      });
+    }
+
+    const cancelQuickAddBtn = document.getElementById('cancelQuickAddBtn');
+    if (cancelQuickAddBtn) {
+      cancelQuickAddBtn.addEventListener('click', () => {
+        quickAddModal.classList.remove('active');
+        quickAddModal.setAttribute('aria-hidden', 'true');
+      });
+    }
+
+    quickAddModal.addEventListener('click', (e) => {
+      if (e.target.id === 'quickAddModal') {
+        quickAddModal.classList.remove('active');
+        quickAddModal.setAttribute('aria-hidden', 'true');
+      }
+    });
+
+    const quickAddForm = document.getElementById('quickAddForm');
+    if (quickAddForm) {
+      quickAddForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const title = document.getElementById('quickTitle').value.trim();
+        const content = document.getElementById('quickContent').value.trim();
+        const tagsString = document.getElementById('quickTags').value.trim();
+
+        if (!title || !content) {
+          showToast('Title and content are required.');
+          return;
+        }
+
+        const tags = tagsString
+          ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)
+          : [];
+
+        const { variables } = parseVariables(content);
+
+        const newPrompt = {
+          id: generateUUID(),
+          title,
+          prompt_content: content,
+          tags,
+          source_url: null,
+          is_template: variables.length > 0,
+          variables,
+          versions: [],
+          usage_context: null,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+          last_used: null
+        };
+
+        const existingPrompts = await loadPrompts();
+        existingPrompts.push(newPrompt);
+        await savePrompts(existingPrompts);
+
+        document.getElementById('quickTitle').value = '';
+        document.getElementById('quickContent').value = '';
+        document.getElementById('quickTags').value = '';
+
+        quickAddModal.classList.remove('active');
+        quickAddModal.setAttribute('aria-hidden', 'true');
+
+        await renderArchiveList(existingPrompts);
+        await renderHistoryList(existingPrompts);
+        showToast('Prompt created successfully.');
+      });
+    }
+  }
+
+  // Add view form handling
+  const addForm = document.getElementById('promptForm');
+  if (addForm) {
+    const titleInput = document.getElementById('titleInput');
+    const promptInput = document.getElementById('promptInput');
+    const tagsInput = document.getElementById('tagsInput');
+    const sourceUrlInput = document.getElementById('sourceUrlInput');
+    const bestUseCaseInput = document.getElementById('bestUseCaseInput');
+    const recommendedModelInput = document.getElementById('recommendedModelInput');
+    const limitationsInput = document.getElementById('limitationsInput');
+    const titleCharCount = document.getElementById('titleCharCount');
+    const promptCharCount = document.getElementById('promptCharCount');
+
+    const TITLE_LIMIT = 80;
+    const PROMPT_LIMIT = 1200;
+
+    const updateCharCount = (input, label, limit) => {
+      if (!label) return;
+      const count = input.value.length;
+      label.textContent = `${count}/${limit}`;
+      label.classList.toggle('over-limit', count > limit);
+    };
+
+    const updateCharCounts = () => {
+      updateCharCount(titleInput, titleCharCount, TITLE_LIMIT);
+      updateCharCount(promptInput, promptCharCount, PROMPT_LIMIT);
+    };
+
+    updateCharCounts();
+
+    [
+      titleInput,
+      promptInput,
+      tagsInput,
+      sourceUrlInput,
+      bestUseCaseInput,
+      recommendedModelInput,
+      limitationsInput
+    ].forEach((input) => {
+      input.addEventListener('input', () => {
+        updateCharCounts();
+      });
+    });
+
+    addForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const title = titleInput.value.trim();
+      const promptContent = promptInput.value.trim();
+      const tagsString = tagsInput.value.trim();
+      const sourceUrl = sourceUrlInput.value.trim();
+      const bestUseCase = bestUseCaseInput.value.trim();
+      const recommendedModel = recommendedModelInput.value.trim();
+      const limitations = limitationsInput.value.trim();
+
+      if (!title || !promptContent) {
+        titleInput.classList.toggle('error', !title);
+        promptInput.classList.toggle('error', !promptContent);
         return;
       }
 
-      const { variables } = parseVariables(prompt.prompt_content || '');
-      const isTemplate = prompt.is_template || variables.length > 0;
+      titleInput.classList.remove('error');
+      promptInput.classList.remove('error');
 
-      if (isTemplate) {
-        openUseModal(prompt);
+      const tags = tagsString
+        ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)
+        : [];
+
+      const { variables } = parseVariables(promptContent);
+      const usageContext = (bestUseCase || recommendedModel || limitations)
+        ? {
+            best_use_case: bestUseCase,
+            recommended_model: recommendedModel,
+            limitations
+          }
+        : null;
+
+      const newPrompt = {
+        id: generateUUID(),
+        title,
+        prompt_content: promptContent,
+        tags,
+        source_url: sourceUrl || null,
+        is_template: variables.length > 0,
+        variables,
+        versions: [],
+        usage_context: usageContext,
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        last_used: null
+      };
+
+      const existingPrompts = await loadPrompts();
+      existingPrompts.push(newPrompt);
+      await savePrompts(existingPrompts);
+
+      titleInput.value = '';
+      promptInput.value = '';
+      tagsInput.value = '';
+      sourceUrlInput.value = '';
+      bestUseCaseInput.value = '';
+      recommendedModelInput.value = '';
+      limitationsInput.value = '';
+
+      updateCharCounts();
+
+      await renderArchiveList(existingPrompts);
+      await renderHistoryList(existingPrompts);
+      showToast('Prompt created successfully.');
+    });
+  }
+
+  // Search view handler (from archive view input)
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      // Filter within archive view
+      const query = e.target.value.trim().toLowerCase();
+      const tokens = tokenizeQuery(query);
+      const allPrompts = prompts;
+      
+      if (tokens.length === 0) {
+        renderArchiveList(allPrompts);
+        return;
+      }
+      
+      const filtered = allPrompts.filter(prompt => {
+        const searchable = buildSearchableText(prompt);
+        return tokens.every(token => searchable.includes(token));
+      });
+      
+      renderArchiveList(filtered);
+    });
+  }
+
+  // Advanced search view handler
+  const advancedSearchInput = document.getElementById('advancedSearchInput');
+  if (advancedSearchInput) {
+    advancedSearchInput.addEventListener('input', async (e) => {
+      const query = e.target.value.trim();
+      const allPrompts = await loadPrompts();
+      const tokens = tokenizeQuery(query);
+      
+      const searchResults = document.getElementById('searchResults');
+      if (!searchResults) return;
+      
+      if (tokens.length === 0) {
+        searchResults.innerHTML = `<div class="empty-state"><p>Enter a search query.</p></div>`;
+        return;
+      }
+      
+      const filtered = allPrompts.filter(prompt => {
+        const searchable = buildSearchableText(prompt);
+        return tokens.every(token => searchable.includes(token));
+      });
+      
+      if (filtered.length === 0) {
+        searchResults.innerHTML = `<div class="empty-state"><p>No prompts match your search.</p></div>`;
+        return;
+      }
+      
+      searchResults.innerHTML = filtered.map(prompt => renderPromptCard(prompt)).join('');
+      attachCardListeners();
+    });
+  }
+
+  // Use Prompt Modal handlers
+  const closeUseModalBtn = document.getElementById('closeUseModal');
+  if (closeUseModalBtn) {
+    closeUseModalBtn.addEventListener('click', closeUseModal);
+  }
+
+  const usePromptModal = document.getElementById('usePromptModal');
+  if (usePromptModal) {
+    usePromptModal.addEventListener('click', (e) => {
+      if (e.target.id === 'usePromptModal') {
+        closeUseModal();
+      }
+    });
+  }
+
+  const useModalCopyBtn = document.getElementById('useModalCopy');
+  if (useModalCopyBtn) {
+    useModalCopyBtn.addEventListener('click', async () => {
+      const modal = document.getElementById('usePromptModal');
+      const resolvedPrompt = modal.dataset.resolvedPrompt || '';
+      const rawPrompt = modal.dataset.rawPrompt || '';
+      const promptToCopy = resolvedPrompt || rawPrompt;
+
+      if (!promptToCopy) {
+        showToast('No prompt content available to copy.');
         return;
       }
 
       try {
-        await navigator.clipboard.writeText(prompt.prompt_content);
-        e.target.textContent = '✓ Copied';
-        e.target.classList.add('copied');
-
-        setTimeout(() => {
-          e.target.textContent = 'Copy';
-          e.target.classList.remove('copied');
-        }, 2000);
-      } catch (err) {
-        e.target.textContent = 'Failed';
-        setTimeout(() => {
-          e.target.textContent = 'Copy';
-        }, 2000);
+        await trackUsage(modal.dataset.promptId);
+        await navigator.clipboard.writeText(promptToCopy);
+        showToast('Prompt copied.');
+      } catch (error) {
+        showToast('Copy failed.');
       }
     });
-  });
+  }
 
-  document.querySelectorAll('.btn-inject').forEach(button => {
-    button.addEventListener('click', async (e) => {
-      const promptId = e.target.dataset.id;
-      const prompts = await loadPrompts();
-      const prompt = prompts.find(p => p.id === promptId);
-
-      if (!prompt) {
+  const useModalInjectBtn = document.getElementById('useModalInject');
+  if (useModalInjectBtn) {
+    useModalInjectBtn.addEventListener('click', async () => {
+      const modal = document.getElementById('usePromptModal');
+      const resolvedPrompt = modal.dataset.resolvedPrompt || '';
+      if (!resolvedPrompt) {
+        showToast('Generate a prompt first.');
         return;
       }
 
-      const { variables } = parseVariables(prompt.prompt_content || '');
-      const isTemplate = prompt.is_template || variables.length > 0;
-      if (isTemplate) {
-        openUseModal(prompt);
-        return;
-      }
-
-      const response = await injectPrompt(prompt.prompt_content);
+      await trackUsage(modal.dataset.promptId);
+      const response = await injectPrompt(resolvedPrompt);
       if (response.success) {
         showToast('Prompt injected.');
+        closeUseModal();
       } else {
         try {
-          await navigator.clipboard.writeText(prompt.prompt_content);
+          await navigator.clipboard.writeText(resolvedPrompt);
           showToast('Injection failed. Copied to clipboard.');
         } catch (error) {
           showToast(response.message || 'Injection failed.');
         }
       }
     });
-  });
-
-  document.querySelectorAll('.btn-use').forEach(button => {
-    button.addEventListener('click', async (e) => {
-      const promptId = e.target.dataset.id;
-      const prompts = await loadPrompts();
-      const prompt = prompts.find(p => p.id === promptId);
-      if (prompt) {
-        openUseModal(prompt);
-      }
-    });
-  });
-
-  document.querySelectorAll('.btn-delete').forEach(button => {
-    button.addEventListener('click', async (e) => {
-      const promptId = e.target.dataset.id;
-      const confirmed = window.confirm('Delete this prompt?');
-      if (!confirmed) {
-        return;
-      }
-      const prompts = await loadPrompts();
-      const updatedPrompts = prompts.filter(p => p.id !== promptId);
-
-      await savePrompts(updatedPrompts);
-      renderPrompts(updatedPrompts);
-    });
-  });
-
-  document.querySelectorAll('.btn-edit').forEach(button => {
-    button.addEventListener('click', async (e) => {
-      const promptId = e.target.dataset.id;
-      const prompts = await loadPrompts();
-      const prompt = prompts.find(p => p.id === promptId);
-      if (prompt) {
-        openEditModal(prompt);
-      }
-    });
-  });
-}
-
-async function searchPrompts(query) {
-  const prompts = await loadPrompts();
-  const tokens = tokenizeQuery(query);
-
-  if (tokens.length === 0) {
-    renderPrompts(prompts);
-    return;
   }
 
-  const filtered = prompts.filter(prompt => {
-    const searchable = buildSearchableText(prompt);
-    return tokens.every(token => searchable.includes(token));
-  });
-
-  renderPrompts(filtered);
-}
-
-document.addEventListener('DOMContentLoaded', async () => {
-  const prompts = await loadPrompts();
-  renderPrompts(prompts);
-
-  const promptForm = document.getElementById('promptForm');
-  const titleInput = document.getElementById('titleInput');
-  const promptInput = document.getElementById('promptInput');
-  const tagsInput = document.getElementById('tagsInput');
-  const sourceUrlInput = document.getElementById('sourceUrlInput');
-  const bestUseCaseInput = document.getElementById('bestUseCaseInput');
-  const recommendedModelInput = document.getElementById('recommendedModelInput');
-  const limitationsInput = document.getElementById('limitationsInput');
-  const searchInput = document.getElementById('searchInput');
-  const togglePromptFormBtn = document.getElementById('togglePromptFormBtn');
-  const draftStatus = document.getElementById('draftStatus');
-  const titleCharCount = document.getElementById('titleCharCount');
-  const promptCharCount = document.getElementById('promptCharCount');
-
-  document.getElementById('openDashboardBtn').addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
-  });
-
-  const TITLE_LIMIT = 80;
-  const PROMPT_LIMIT = 1200;
-
-  const setDraftStatus = (state, message) => {
-    if (!draftStatus) {
-      return;
-    }
-    draftStatus.dataset.state = state;
-    draftStatus.textContent = message;
-  };
-
-  const updateCharCount = (input, label, limit) => {
-    if (!label) {
-      return;
-    }
-    const count = input.value.length;
-    label.textContent = `${count}/${limit}`;
-    label.classList.toggle('over-limit', count > limit);
-  };
-
-  const updateCharCounts = () => {
-    updateCharCount(titleInput, titleCharCount, TITLE_LIMIT);
-    updateCharCount(promptInput, promptCharCount, PROMPT_LIMIT);
-  };
-
-  const applyDraftToForm = (draft) => {
-    if (!draft) {
-      return;
-    }
-
-    titleInput.value = draft.title || '';
-    promptInput.value = draft.promptContent || '';
-    tagsInput.value = draft.tags || '';
-    sourceUrlInput.value = draft.sourceUrl || '';
-    bestUseCaseInput.value = draft.bestUseCase || '';
-    recommendedModelInput.value = draft.recommendedModel || '';
-    limitationsInput.value = draft.limitations || '';
-
-    updateCharCounts();
-  };
-
-  const collectDraftFromForm = () => {
-    const draft = {
-      title: titleInput.value,
-      promptContent: promptInput.value,
-      tags: tagsInput.value,
-      sourceUrl: sourceUrlInput.value,
-      bestUseCase: bestUseCaseInput.value,
-      recommendedModel: recommendedModelInput.value,
-      limitations: limitationsInput.value
-    };
-
-    const hasValue = Object.values(draft).some((value) => value && value.trim());
-    return hasValue ? draft : null;
-  };
-
-  let draftSaveTimer = null;
-  const scheduleDraftSave = () => {
-    if (draftSaveTimer) {
-      clearTimeout(draftSaveTimer);
-    }
-    setDraftStatus('saving', 'Saving draft...');
-    draftSaveTimer = setTimeout(() => {
-      const draft = collectDraftFromForm();
-      if (!draft) {
-        clearPromptDraft();
-        setDraftStatus('idle', 'Autosave on');
-        return;
-      }
-      savePromptDraft(draft).then(() => {
-        setDraftStatus('saved', `Draft saved · ${formatTime(Date.now())}`);
-      });
-    }, 250);
-  };
-
-  const promptDraft = await loadPromptDraft();
-  if (promptDraft) {
-    applyDraftToForm(promptDraft);
-    setDraftStatus('restored', 'Draft restored');
-  } else {
-    setDraftStatus('idle', 'Autosave on');
+  // Edit Prompt Modal handlers
+  const closeEditModalBtn = document.getElementById('closeEditModal');
+  if (closeEditModalBtn) {
+    closeEditModalBtn.addEventListener('click', closeEditModal);
   }
 
-  document.getElementById('closeUseModal').addEventListener('click', closeUseModal);
-  document.getElementById('usePromptModal').addEventListener('click', (e) => {
-    if (e.target.id === 'usePromptModal') {
-      closeUseModal();
-    }
-  });
+  const cancelEditBtn = document.getElementById('cancelEditBtn');
+  if (cancelEditBtn) {
+    cancelEditBtn.addEventListener('click', closeEditModal);
+  }
 
-  document.getElementById('useModalCopy').addEventListener('click', async () => {
-    const modal = document.getElementById('usePromptModal');
-    const resolvedPrompt = modal.dataset.resolvedPrompt || '';
-    const rawPrompt = modal.dataset.rawPrompt || '';
-    const promptToCopy = resolvedPrompt || rawPrompt;
-
-    if (!promptToCopy) {
-      showToast('No prompt content available to copy.');
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(promptToCopy);
-      showToast('Prompt copied.');
-    } catch (error) {
-      showToast('Copy failed.');
-    }
-  });
-
-  document.getElementById('useModalInject').addEventListener('click', async () => {
-    const modal = document.getElementById('usePromptModal');
-    const resolvedPrompt = modal.dataset.resolvedPrompt || '';
-    if (!resolvedPrompt) {
-      showToast('Generate a prompt first.');
-      return;
-    }
-
-    const response = await injectPrompt(resolvedPrompt);
-    if (response.success) {
-      showToast('Prompt injected.');
-    } else {
-      try {
-        await navigator.clipboard.writeText(resolvedPrompt);
-        showToast('Injection failed. Copied to clipboard.');
-      } catch (error) {
-        showToast(response.message || 'Injection failed.');
+  const editPromptModal = document.getElementById('editPromptModal');
+  if (editPromptModal) {
+    editPromptModal.addEventListener('click', (e) => {
+      if (e.target.id === 'editPromptModal') {
+        closeEditModal();
       }
-    }
-  });
+    });
+  }
 
-  document.getElementById('closeEditModal').addEventListener('click', closeEditModal);
+  const editPromptForm = document.getElementById('editPromptForm');
+  if (editPromptForm) {
+    editPromptForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
 
-  document.getElementById('cancelEditBtn').addEventListener('click', closeEditModal);
+      const promptId = document.getElementById('editPromptId').value;
+      const title = document.getElementById('editPromptTitle').value.trim();
+      const content = document.getElementById('editPromptContent').value.trim();
+      const tagsString = document.getElementById('editPromptTags').value.trim();
+      const sourceUrl = document.getElementById('editPromptSourceUrl').value.trim();
+      const bestUseCase = document.getElementById('editPromptBestUseCase').value.trim();
+      const recommendedModel = document.getElementById('editPromptRecommendedModel').value.trim();
+      const limitations = document.getElementById('editPromptLimitations').value.trim();
 
-  document.getElementById('editPromptModal').addEventListener('click', (e) => {
-    if (e.target.id === 'editPromptModal') {
-      closeEditModal();
-    }
-  });
+      if (!title || !content) {
+        showToast('Title and content are required.');
+        return;
+      }
 
-  document.getElementById('editPromptForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
+      const tags = tagsString
+        ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)
+        : [];
 
-    const promptId = document.getElementById('editPromptId').value;
-    const title = document.getElementById('editPromptTitle').value.trim();
-    const content = document.getElementById('editPromptContent').value.trim();
-    const tagsString = document.getElementById('editPromptTags').value.trim();
-    const sourceUrl = document.getElementById('editPromptSourceUrl').value.trim();
-    const bestUseCase = document.getElementById('editPromptBestUseCase').value.trim();
-    const recommendedModel = document.getElementById('editPromptRecommendedModel').value.trim();
-    const limitations = document.getElementById('editPromptLimitations').value.trim();
-
-    if (!title || !content) {
-      showToast('Title and content are required.');
-      return;
-    }
-
-    const tags = tagsString
-      ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)
-      : [];
-
-    const usageContext = (bestUseCase || recommendedModel || limitations)
-      ? {
-          best_use_case: bestUseCase,
-          recommended_model: recommendedModel,
-          limitations
-        }
-      : null;
-
-    const { variables } = parseVariables(content);
-
-    const prompts = await loadPrompts();
-    const promptIndex = prompts.findIndex(p => p.id === promptId);
-
-    if (promptIndex !== -1) {
-      const previousPrompt = prompts[promptIndex];
-      const shouldSnapshot = previousPrompt.prompt_content !== content;
-      let versions = sanitizePromptVersions(previousPrompt.versions);
-
-      if (shouldSnapshot) {
-        const MAX_PROMPT_VERSIONS = 10;
-        versions = [
-          ...versions,
-          {
-            id: generateUUID(),
-            content: previousPrompt.prompt_content,
-            saved_at: Date.now()
+      const usageContext = (bestUseCase || recommendedModel || limitations)
+        ? {
+            best_use_case: bestUseCase,
+            recommended_model: recommendedModel,
+            limitations
           }
-        ];
-        
-        if (versions.length > MAX_PROMPT_VERSIONS) {
-          versions = versions.slice(-MAX_PROMPT_VERSIONS);
+        : null;
+
+      const { variables } = parseVariables(content);
+
+      const storedPrompts = await loadPrompts();
+      const promptIndex = storedPrompts.findIndex(p => p.id === promptId);
+
+      if (promptIndex !== -1) {
+        const previousPrompt = storedPrompts[promptIndex];
+        const shouldSnapshot = previousPrompt.prompt_content !== content;
+        let versions = sanitizePromptVersions(previousPrompt.versions);
+
+        if (shouldSnapshot) {
+          const MAX_PROMPT_VERSIONS = 10;
+          versions = [
+            ...versions,
+            {
+              id: generateUUID(),
+              content: previousPrompt.prompt_content,
+              saved_at: Date.now()
+            }
+          ];
+          
+          if (versions.length > MAX_PROMPT_VERSIONS) {
+            versions = versions.slice(-MAX_PROMPT_VERSIONS);
+          }
         }
+
+        storedPrompts[promptIndex] = {
+          ...previousPrompt,
+          title,
+          prompt_content: content,
+          tags,
+          source_url: sourceUrl || null,
+          is_template: variables.length > 0,
+          variables,
+          versions,
+          usage_context: usageContext,
+          updated_at: Date.now()
+        };
+
+        await savePrompts(storedPrompts);
+        await renderArchiveList(storedPrompts);
+        await renderHistoryList(storedPrompts);
+        closeEditModal();
+        showToast('Prompt updated successfully.');
       }
-
-      prompts[promptIndex] = {
-        ...previousPrompt,
-        title,
-        prompt_content: content,
-        tags,
-        source_url: sourceUrl || null,
-        is_template: variables.length > 0,
-        variables,
-        versions,
-        usage_context: usageContext,
-        updated_at: Date.now()
-      };
-
-      await savePrompts(prompts);
-      renderPrompts(prompts);
-      closeEditModal();
-      showToast('Prompt updated successfully.');
-    }
-  });
-
-  togglePromptFormBtn.addEventListener('click', () => {
-    const isCollapsed = promptForm.classList.contains('collapsed');
-    if (isCollapsed) {
-      promptForm.classList.remove('collapsed');
-      togglePromptFormBtn.textContent = '-';
-      togglePromptFormBtn.title = 'hide form';
-      titleInput.focus();
-    } else {
-      promptForm.classList.add('collapsed');
-      togglePromptFormBtn.textContent = '+';
-      togglePromptFormBtn.title = 'make a new prompt';
-    }
-  });
-
-  [
-    titleInput,
-    promptInput,
-    tagsInput,
-    sourceUrlInput,
-    bestUseCaseInput,
-    recommendedModelInput,
-    limitationsInput
-  ].forEach((input) => {
-    input.addEventListener('input', () => {
-      updateCharCounts();
-      scheduleDraftSave();
     });
-    input.addEventListener('change', scheduleDraftSave);
-  });
+  }
 
-  updateCharCounts();
-
-  promptForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const title = titleInput.value.trim();
-    const promptContent = promptInput.value.trim();
-    const tagsString = tagsInput.value.trim();
-    const sourceUrl = sourceUrlInput.value.trim();
-    const bestUseCase = bestUseCaseInput.value.trim();
-    const recommendedModel = recommendedModelInput.value.trim();
-    const limitations = limitationsInput.value.trim();
-
-    if (!title || !promptContent) {
-      titleInput.classList.toggle('error', !title);
-      promptInput.classList.toggle('error', !promptContent);
-      return;
-    }
-
-    titleInput.classList.remove('error');
-    promptInput.classList.remove('error');
-
-    const tags = tagsString
-      ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag)
-      : [];
-
-    const { variables } = parseVariables(promptContent);
-    const usageContext = (bestUseCase || recommendedModel || limitations)
-      ? {
-          best_use_case: bestUseCase,
-          recommended_model: recommendedModel,
-          limitations
-        }
-      : null;
-
-    const newPrompt = {
-      id: generateUUID(),
-      title,
-      prompt_content: promptContent,
-      tags,
-      source_url: sourceUrl || null,
-      is_template: variables.length > 0,
-      variables,
-      versions: [],
-      usage_context: usageContext,
-      created_at: Date.now(),
-      updated_at: Date.now()
-    };
-
-    const existingPrompts = await loadPrompts();
-    existingPrompts.push(newPrompt);
-    await savePrompts(existingPrompts);
-
-    titleInput.value = '';
-    promptInput.value = '';
-    tagsInput.value = '';
-    sourceUrlInput.value = '';
-    bestUseCaseInput.value = '';
-    recommendedModelInput.value = '';
-    limitationsInput.value = '';
-
-    await clearPromptDraft();
-    setDraftStatus('idle', 'Autosave on');
-    updateCharCounts();
-
-    renderPrompts(existingPrompts);
-
-    promptForm.classList.add('collapsed');
-    togglePromptFormBtn.textContent = '+';
-    togglePromptFormBtn.title = 'make a new prompt';
-  });
-
-  searchInput.addEventListener('input', (e) => {
-    searchPrompts(e.target.value);
-  });
+  // Settings button
+  const settingsBtn = document.getElementById('settingsBtn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      chrome.runtime.openOptionsPage();
+    });
+  }
 });
