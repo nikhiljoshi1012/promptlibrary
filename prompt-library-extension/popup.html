@@ -1,239 +1,373 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>The Home - Prompt Library</title>
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <div class="archive-container">
-    <!-- Header -->
-    <header class="archive-header">
-      <div class="header-left">
-        <div class="archive-icon">📦</div>
-        <h1>The Home</h1>
-      </div>
-      <div class="header-center">
-        <div class="autosave-badge" id="autosaveBadge">
-          <span class="autosave-dot"></span>
-          AUTOSAVE: ENABLED
-        </div>
-      </div>
-      <button type="button" class="header-gear" id="settingsBtn" title="Settings">⚙️</button>
-    </header>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>The Home - Prompt Library</title>
+        <link rel="stylesheet" href="popup.css" />
+    </head>
+    <body>
+        <div class="archive-container">
+            <!-- Header -->
+            <header class="archive-header">
+                <div class="header-left">
+                    <!--<div class="archive-icon">📦</div>-->
+                    <h1>Prompt Library</h1>
+                </div>
+                <div class="header-center">
+                    <div class="autosave-badge" id="autosaveBadge">
+                        <span class="autosave-dot"></span>
+                        AUTOSAVE: ENABLED
+                    </div>
+                    <div id="draftBanner" class="draft-banner hidden">
+                        <span id="draftMessage" class="draft-message"></span>
+                        <button id="restoreDraftBtn" class="draft-action">
+                            Restore
+                        </button>
+                        <button id="discardDraftBtn" class="draft-action">
+                            Discard
+                        </button>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="header-gear"
+                    id="settingsBtn"
+                    title="Settings"
+                >
+                    ⚙️
+                </button>
+            </header>
 
-    <!-- Main Content Area -->
-    <main class="main-content">
-      <!-- Archive View (Home) -->
-      <div id="archiveView" class="view-container active">
-        <div class="view-header">
-          <input type="text" id="searchInput" class="search-input" placeholder="Filter prompts...">
-        </div>
-        <div id="archiveList" class="prompts-list"></div>
-        <div id="emptyArchiveState" class="empty-state hidden">
-          <p>No prompts yet. Create one to get started!</p>
-        </div>
-      </div>
+            <!-- Main Content Area -->
+            <main class="main-content">
+                <!-- Archive View (Home) -->
+                <div id="archiveView" class="view-container active">
+                    <div class="view-header">
+                        <input
+                            type="text"
+                            id="searchInput"
+                            class="search-input"
+                            placeholder="Filter prompts..."
+                        />
+                    </div>
+                    <div id="archiveList" class="prompts-list"></div>
+                    <div id="emptyArchiveState" class="empty-state hidden">
+                        <p>No prompts yet. Create one to get started!</p>
+                    </div>
+                </div>
 
-      <!-- Search View -->
-      <div id="searchView" class="view-container">
-        <div class="view-header">
-          <input type="text" id="advancedSearchInput" class="search-input" placeholder="Search all prompts...">
-        </div>
-        <div id="searchResults" class="prompts-list"></div>
-        <div id="emptySearchState" class="empty-state hidden">
-          <p>No prompts match your search.</p>
-        </div>
-      </div>
+                <!-- Search View -->
+                <div id="searchView" class="view-container">
+                    <div class="view-header">
+                        <input
+                            type="text"
+                            id="advancedSearchInput"
+                            class="search-input"
+                            placeholder="Search all prompts..."
+                        />
+                    </div>
+                    <div id="searchResults" class="prompts-list"></div>
+                    <div id="emptySearchState" class="empty-state hidden">
+                        <p>No prompts match your search.</p>
+                    </div>
+                </div>
 
-      <!-- Add New Prompt View -->
-      <div id="addView" class="view-container">
-        <div class="view-header">
-          <h2>Create New Prompt</h2>
-        </div>
-        <form id="promptForm" class="add-prompt-form">
-          <div class="form-group">
-            <label for="titleInput">Title *</label>
-            <input type="text" id="titleInput" placeholder="Enter prompt title" maxlength="80" required>
-            <span class="char-count" id="titleCharCount">0/80</span>
-          </div>
-          
-          <div class="form-group">
-            <label for="promptInput">Prompt Content *</label>
-            <textarea id="promptInput" placeholder="Enter your prompt" maxlength="1200" required></textarea>
-            <span class="char-count" id="promptCharCount">0/1200</span>
-            <p class="field-hint">Tip: Use {brackets} to create variables for templates.</p>
-          </div>
-          
-          <div class="form-group">
-            <label for="tagsInput">Tags (comma-separated)</label>
-            <input type="text" id="tagsInput" placeholder="e.g., coding, writing, analysis">
-          </div>
-          
-          <div class="form-group">
-            <label for="sourceUrlInput">Source URL (optional)</label>
-            <input type="url" id="sourceUrlInput" placeholder="https://example.com">
-          </div>
+                <!-- Add New Prompt View -->
+                <div id="addView" class="view-container">
+                    <div class="view-header">
+                        <h2>Create New Prompt</h2>
+                    </div>
+                    <form id="promptForm" class="add-prompt-form">
+                        <div class="form-group">
+                            <label for="titleInput">Title *</label>
+                            <input
+                                type="text"
+                                id="titleInput"
+                                placeholder="Enter prompt title"
+                                maxlength="80"
+                                required
+                            />
+                            <span class="char-count" id="titleCharCount"
+                                >0/80</span
+                            >
+                        </div>
 
-          <div class="form-group">
-            <label for="bestUseCaseInput">When to use this (optional)</label>
-            <input type="text" id="bestUseCaseInput" placeholder="e.g., Summarize financial reports">
-          </div>
+                        <div class="form-group">
+                            <label for="promptInput">Prompt Content *</label>
+                            <textarea
+                                id="promptInput"
+                                placeholder="Enter your prompt"
+                                maxlength="1200"
+                                required
+                            ></textarea>
+                            <span class="char-count" id="promptCharCount"
+                                >0/1200</span
+                            >
+                            <p class="field-hint">
+                                Tip: Use {brackets} to create variables for
+                                templates.
+                            </p>
+                        </div>
 
-          <div class="form-group">
-            <label for="recommendedModelInput">Recommended model (optional)</label>
-            <input type="text" id="recommendedModelInput" placeholder="e.g., GPT-4, Claude 3">
-          </div>
+                        <div class="form-group">
+                            <label for="tagsInput"
+                                >Tags (comma-separated)</label
+                            >
+                            <input
+                                type="text"
+                                id="tagsInput"
+                                placeholder="e.g., coding, writing, analysis"
+                            />
+                        </div>
 
-          <div class="form-group">
-            <label for="limitationsInput">Limitations (optional)</label>
-            <textarea id="limitationsInput" placeholder="e.g., Struggles with scanned PDFs" maxlength="500"></textarea>
-          </div>
-          
-          <button type="submit" class="btn-save">Save Prompt</button>
-        </form>
-      </div>
+                        <div class="form-group">
+                            <label for="sourceUrlInput"
+                                >Source URL (optional)</label
+                            >
+                            <input
+                                type="url"
+                                id="sourceUrlInput"
+                                placeholder="https://example.com"
+                            />
+                        </div>
 
-      <!-- History View -->
-      <div id="historyView" class="view-container">
-        <div class="view-header">
-          <h2>Recently Used</h2>
-        </div>
-        <div id="historyList" class="prompts-list"></div>
-        <div id="emptyHistoryState" class="empty-state hidden">
-          <p>No recently used prompts.</p>
-        </div>
-      </div>
-    </main>
+                        <div class="form-group">
+                            <label for="bestUseCaseInput"
+                                >When to use this (optional)</label
+                            >
+                            <input
+                                type="text"
+                                id="bestUseCaseInput"
+                                placeholder="e.g., Summarize financial reports"
+                            />
+                        </div>
 
-    <!-- Bottom Navigation -->
-    <nav class="bottom-nav">
-      <button class="nav-btn active" data-view="archive" title="Home">
-        <span class="nav-icon">🏠</span>
-        <span class="nav-label">Home</span>
-      </button>
-      <button class="nav-btn" data-view="search" title="Search">
-        <span class="nav-icon">🔍</span>
-        <span class="nav-label">Search</span>
-      </button>
-      <button class="nav-btn" data-view="add" title="Add">
-        <span class="nav-icon">➕</span>
-        <span class="nav-label">Add</span>
-      </button>
-      <button class="nav-btn" data-view="history" title="History">
-        <span class="nav-icon">🕐</span>
-        <span class="nav-label">History</span>
-      </button>
-    </nav>
+                        <div class="form-group">
+                            <label for="recommendedModelInput"
+                                >Recommended model (optional)</label
+                            >
+                            <input
+                                type="text"
+                                id="recommendedModelInput"
+                                placeholder="e.g., GPT-4, Claude 3"
+                            />
+                        </div>
 
-    <!-- Floating "+" Button -->
-    <button class="floating-add-btn" id="floatingAddBtn" title="Quick Add Prompt">➕</button>
-  </div>
+                        <div class="form-group">
+                            <label for="limitationsInput"
+                                >Limitations (optional)</label
+                            >
+                            <textarea
+                                id="limitationsInput"
+                                placeholder="e.g., Struggles with scanned PDFs"
+                                maxlength="500"
+                            ></textarea>
+                        </div>
 
-  <!-- Modals -->
-  <!-- Quick Add Modal -->
-  <div id="quickAddModal" class="modal" aria-hidden="true">
-    <div class="modal-overlay"></div>
-    <div class="modal-content quick-add-modal">
-      <div class="modal-header">
-        <h2>Quick Add Prompt</h2>
-        <button type="button" class="close-btn" id="closeQuickAddBtn">&times;</button>
-      </div>
-      <form id="quickAddForm">
-        <div class="form-group">
-          <label for="quickTitle">Title *</label>
-          <input type="text" id="quickTitle" placeholder="Prompt title" maxlength="80" required>
-        </div>
-        <div class="form-group">
-          <label for="quickContent">Content *</label>
-          <textarea id="quickContent" placeholder="Prompt content" maxlength="1200" required></textarea>
-        </div>
-        <div class="form-group">
-          <label for="quickTags">Tags (optional)</label>
-          <input type="text" id="quickTags" placeholder="e.g., AI, writing">
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn-secondary" id="cancelQuickAddBtn">Cancel</button>
-          <button type="submit" class="btn-primary">Save</button>
-        </div>
-      </form>
-    </div>
-  </div>
+                        <button type="submit" class="btn-save">
+                            Save Prompt
+                        </button>
+                    </form>
+                </div>
 
-  <!-- Use Prompt Modal -->
-  <div id="usePromptModal" class="modal" aria-hidden="true">
-    <div class="modal-overlay"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <span class="close-btn" id="closeUseModal">&times;</span>
-        <h2 id="useModalTitle">Use Prompt</h2>
-      </div>
-      <div id="usePromptBody"></div>
-      <div class="modal-actions">
-        <button class="btn-secondary" id="useModalCopy">Copy</button>
-        <button class="btn-primary" id="useModalInject">Inject</button>
-      </div>
-    </div>
-  </div>
+                <!-- History View -->
+                <div id="historyView" class="view-container">
+                    <div class="view-header">
+                        <h2>Recently Used</h2>
+                    </div>
+                    <div id="historyList" class="prompts-list"></div>
+                    <div id="emptyHistoryState" class="empty-state hidden">
+                        <p>No recently used prompts.</p>
+                    </div>
+                </div>
+            </main>
 
-  <!-- Edit Prompt Modal -->
-  <div id="editPromptModal" class="modal" aria-hidden="true">
-    <div class="modal-overlay"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <span class="close-btn" id="closeEditModal">&times;</span>
-        <h2>Edit Prompt</h2>
-      </div>
-      <form id="editPromptForm">
-        <input type="hidden" id="editPromptId">
-        
-        <div class="form-group">
-          <label for="editPromptTitle">Title *</label>
-          <input type="text" id="editPromptTitle" required>
-        </div>
-        
-        <div class="form-group">
-          <label for="editPromptContent">Prompt Content *</label>
-          <textarea id="editPromptContent" rows="6" required></textarea>
-        </div>
-        
-        <div class="form-group">
-          <label for="editPromptTags">Tags (comma-separated)</label>
-          <input type="text" id="editPromptTags">
-        </div>
-        
-        <div class="form-group">
-          <label for="editPromptSourceUrl">Source URL</label>
-          <input type="url" id="editPromptSourceUrl">
-        </div>
-        
-        <div class="form-group">
-          <label for="editPromptBestUseCase">When to use this</label>
-          <input type="text" id="editPromptBestUseCase">
-        </div>
-        
-        <div class="form-group">
-          <label for="editPromptRecommendedModel">Recommended model</label>
-          <input type="text" id="editPromptRecommendedModel">
-        </div>
-        
-        <div class="form-group">
-          <label for="editPromptLimitations">Limitations</label>
-          <textarea id="editPromptLimitations" rows="2"></textarea>
-        </div>
-        
-        <div class="modal-actions">
-          <button type="button" class="btn-secondary" id="cancelEditBtn">Cancel</button>
-          <button type="submit" class="btn-primary">Save Changes</button>
-        </div>
-      </form>
-    </div>
-  </div>
+            <!-- Bottom Navigation -->
+            <nav class="bottom-nav">
+                <button class="nav-btn active" data-view="archive" title="Home">
+                    <span class="nav-icon">🏠</span>
+                    <span class="nav-label">Home</span>
+                </button>
+                <button class="nav-btn" data-view="search" title="Search">
+                    <span class="nav-icon">🔍</span>
+                    <span class="nav-label">Search</span>
+                </button>
+                <button class="nav-btn" data-view="add" title="Add">
+                    <span class="nav-icon">➕</span>
+                    <span class="nav-label">Add</span>
+                </button>
+                <button class="nav-btn" data-view="history" title="History">
+                    <span class="nav-icon">🕐</span>
+                    <span class="nav-label">History [Versions]</span>
+                </button>
+            </nav>
 
-  <!-- Toast Notification -->
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+            <!-- Floating "+" Button -->
+            <button
+                class="floating-add-btn"
+                id="floatingAddBtn"
+                title="Quick Add Prompt"
+            >
+                ➕
+            </button>
+        </div>
 
-  <script src="popup.js"></script>
-</body>
+        <!-- Modals -->
+        <!-- Quick Add Modal -->
+        <div id="quickAddModal" class="modal" aria-hidden="true">
+            <div class="modal-overlay"></div>
+            <div class="modal-content quick-add-modal">
+                <div class="modal-header">
+                    <h2>Quick Add Prompt</h2>
+                    <button
+                        type="button"
+                        class="close-btn"
+                        id="closeQuickAddBtn"
+                    >
+                        &times;
+                    </button>
+                </div>
+                <form id="quickAddForm">
+                    <div class="form-group">
+                        <label for="quickTitle">Title *</label>
+                        <input
+                            type="text"
+                            id="quickTitle"
+                            placeholder="Prompt title"
+                            maxlength="80"
+                            required
+                        />
+                    </div>
+                    <div class="form-group">
+                        <label for="quickContent">Content *</label>
+                        <textarea
+                            id="quickContent"
+                            placeholder="Prompt content"
+                            maxlength="1200"
+                            required
+                        ></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="quickTags">Tags (optional)</label>
+                        <input
+                            type="text"
+                            id="quickTags"
+                            placeholder="e.g., AI, writing"
+                        />
+                    </div>
+                    <div class="modal-actions">
+                        <button
+                            type="button"
+                            class="btn-secondary"
+                            id="cancelQuickAddBtn"
+                        >
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn-primary">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Use Prompt Modal -->
+        <div id="usePromptModal" class="modal" aria-hidden="true">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span class="close-btn" id="closeUseModal">&times;</span>
+                    <h2 id="useModalTitle">Use Prompt</h2>
+                </div>
+                <div id="usePromptBody"></div>
+                <div class="modal-actions">
+                    <button class="btn-secondary" id="useModalCopy">
+                        Copy
+                    </button>
+                    <button class="btn-primary" id="useModalInject">
+                        Inject
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Prompt Modal -->
+        <div id="editPromptModal" class="modal" aria-hidden="true">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span class="close-btn" id="closeEditModal">&times;</span>
+                    <h2>Edit Prompt</h2>
+                </div>
+                <form id="editPromptForm">
+                    <input type="hidden" id="editPromptId" />
+
+                    <div class="form-group">
+                        <label for="editPromptTitle">Title *</label>
+                        <input type="text" id="editPromptTitle" required />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editPromptContent">Prompt Content *</label>
+                        <textarea
+                            id="editPromptContent"
+                            rows="6"
+                            required
+                        ></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editPromptTags"
+                            >Tags (comma-separated)</label
+                        >
+                        <input type="text" id="editPromptTags" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editPromptSourceUrl">Source URL</label>
+                        <input type="url" id="editPromptSourceUrl" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editPromptBestUseCase"
+                            >When to use this</label
+                        >
+                        <input type="text" id="editPromptBestUseCase" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editPromptRecommendedModel"
+                            >Recommended model</label
+                        >
+                        <input type="text" id="editPromptRecommendedModel" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editPromptLimitations">Limitations</label>
+                        <textarea
+                            id="editPromptLimitations"
+                            rows="2"
+                        ></textarea>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button
+                            type="button"
+                            class="btn-secondary"
+                            id="cancelEditBtn"
+                        >
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn-primary">
+                            Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+        <script src="popup.js"></script>
+    </body>
 </html>
