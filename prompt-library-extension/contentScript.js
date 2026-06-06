@@ -76,7 +76,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (inserted) {
     sendResponse({ success: true });
   } else {
-    sendResponse({ success: false, message: 'Failed to insert text.' });
+    // Fallback: Use Clipboard API and dispatch a Paste event
+    navigator.clipboard.writeText(message.text || '').then(() => {
+      try {
+        const pasteEvent = new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: new DataTransfer()
+        });
+        pasteEvent.clipboardData.setData('text/plain', message.text || '');
+        activeElement.dispatchEvent(pasteEvent);
+        sendResponse({ success: true, message: 'Used clipboard fallback.' });
+      } catch (err) {
+        sendResponse({ success: false, message: 'Failed to insert text and fallback failed.' });
+      }
+    }).catch(() => {
+      sendResponse({ success: false, message: 'Failed to insert text.' });
+    });
   }
 
   return true;

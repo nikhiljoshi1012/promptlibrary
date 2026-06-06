@@ -98,11 +98,10 @@
                             <textarea
                                 id="promptInput"
                                 placeholder="Enter your prompt"
-                                maxlength="1200"
                                 required
                             ></textarea>
                             <span class="char-count" id="promptCharCount"
-                                >0/1200</span
+                                >0 chars</span
                             >
                             <p class="field-hint">
                                 Tip: Use {brackets} to create variables for
@@ -244,7 +243,6 @@
                         <textarea
                             id="quickContent"
                             placeholder="Prompt content"
-                            maxlength="1200"
                             required
                         ></textarea>
                     </div>
@@ -349,6 +347,16 @@
                         ></textarea>
                     </div>
 
+                    <div class="form-group">
+                        <label for="editPromptVersionNote">Version Note (optional)</label>
+                        <input type="text" id="editPromptVersionNote" placeholder="e.g., Optimized for GPT-4" />
+                    </div>
+
+                    <div class="version-history-popup hidden" id="popupVersionHistorySection">
+                        <h3>Version History</h3>
+                        <div id="popupVersionHistoryContainer" class="version-empty">No previous versions yet.</div>
+                    </div>
+
                     <div class="modal-actions">
                         <button
                             type="button"
@@ -368,6 +376,7 @@
         <!-- Toast Notification -->
         <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+        <script src="storage.js"></script>
         <script src="popup.js"></script>
     </body>
 </html>

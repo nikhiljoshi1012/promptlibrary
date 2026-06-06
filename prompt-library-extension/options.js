@@ -1,5 +1,5 @@
 let selectedPrompts = new Set();
-const MAX_PROMPT_VERSIONS = 10;
+const MAX_PROMPT_VERSIONS = 30;
 
 function generateUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -72,14 +72,18 @@ function sanitizePromptVersions(value) {
         return null;
       }
 
-      const content = sanitizeText(version.content);
+      const content = sanitizeText(version.content || version.prompt_content);
       if (!content) {
         return null;
       }
 
       return {
         id: sanitizeText(version.id) || generateUUID(),
+        title: sanitizeText(version.title),
         content,
+        tags: sanitizeTags(version.tags),
+        usage_context: sanitizeUsageContext(version.usage_context),
+        version_note: sanitizeText(version.version_note),
         saved_at: Number.isFinite(version.saved_at) ? version.saved_at : Date.now()
       };
     })
@@ -160,23 +164,15 @@ function parseVariables(promptContent) {
 }
 
 async function loadPrompts() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['prompts'], (result) => {
-      const storedPrompts = Array.isArray(result.prompts) ? result.prompts : [];
-      const normalizedPrompts = storedPrompts
-        .map(normalizePrompt)
-        .filter((prompt) => Boolean(prompt));
-      resolve(normalizedPrompts);
-    });
-  });
+  const storedPrompts = await dbLoadPrompts();
+  const normalizedPrompts = storedPrompts
+    .map(normalizePrompt)
+    .filter((prompt) => Boolean(prompt));
+  return normalizedPrompts;
 }
 
 async function savePrompts(prompts) {
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ prompts }, () => {
-      resolve();
-    });
-  });
+  await dbSavePrompts(prompts);
 }
 
 function formatDate(timestamp) {
@@ -211,8 +207,15 @@ function updateStats(prompts) {
   document.getElementById('totalCharacters').textContent = totalCharacters.toLocaleString();
 }
 
+let tableObserver = null;
+
 function renderTable(prompts) {
   const tableContainer = document.getElementById('tableContainer');
+  
+  if (tableObserver) {
+    tableObserver.disconnect();
+    tableObserver = null;
+  }
   
   if (prompts.length === 0) {
     tableContainer.innerHTML = `
@@ -225,7 +228,7 @@ function renderTable(prompts) {
   
   const sortedPrompts = [...prompts].sort((a, b) => b.updated_at - a.updated_at);
   
-  const tableHtml = `
+  tableContainer.innerHTML = `
     <table id="promptsTable">
       <thead>
         <tr>
@@ -237,88 +240,112 @@ function renderTable(prompts) {
           <th>Actions</th>
         </tr>
       </thead>
-      <tbody>
-        ${sortedPrompts.map(prompt => {
-          const promptContent = prompt.prompt_content || '';
-          const contentPreview = promptContent.substring(0, 100);
-          const previewText = promptContent.length > 100 ? contentPreview + '...' : contentPreview;
-          
-          const tagsHtml = prompt.tags && prompt.tags.length > 0
-            ? prompt.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')
-            : '-';
-          
-          return `
-            <tr data-id="${escapeHtml(prompt.id)}">
-              <td><input type="checkbox" class="prompt-checkbox" data-id="${escapeHtml(prompt.id)}" ${selectedPrompts.has(prompt.id) ? 'checked' : ''}></td>
-              <td><strong>${escapeHtml(prompt.title)}</strong></td>
-              <td><div class="tags-cell">${tagsHtml}</div></td>
-              <td>${escapeHtml(previewText)}</td>
-              <td>${formatDate(prompt.created_at)}</td>
-              <td>
-                <button class="btn btn-primary action-btn edit-btn" data-id="${escapeHtml(prompt.id)}">Edit</button>
-                <button class="btn btn-danger action-btn delete-btn" data-id="${escapeHtml(prompt.id)}">Delete</button>
-              </td>
-            </tr>
-          `;
-        }).join('')}
+      <tbody id="promptsTableBody">
       </tbody>
     </table>
   `;
   
-  tableContainer.innerHTML = tableHtml;
+  const tbody = document.getElementById('promptsTableBody');
+  const chunkSize = 20;
+  let currentIndex = 0;
+  
+  const loadNextChunk = () => {
+    const chunk = sortedPrompts.slice(currentIndex, currentIndex + chunkSize);
+    if (chunk.length === 0) return;
+    
+    const oldSentinel = tbody.querySelector('.scroll-sentinel');
+    if (oldSentinel) oldSentinel.remove();
+    
+    const html = chunk.map(prompt => {
+      const promptContent = prompt.prompt_content || '';
+      const contentPreview = promptContent.substring(0, 100);
+      const previewText = promptContent.length > 100 ? contentPreview + '...' : contentPreview;
+      
+      const tagsHtml = prompt.tags && prompt.tags.length > 0
+        ? prompt.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')
+        : '-';
+      
+      return `
+        <tr data-id="${escapeHtml(prompt.id)}" class="prompt-row">
+          <td><input type="checkbox" class="prompt-checkbox" data-id="${escapeHtml(prompt.id)}" ${selectedPrompts.has(prompt.id) ? 'checked' : ''}></td>
+          <td><strong>${escapeHtml(prompt.title)}</strong></td>
+          <td><div class="tags-cell">${tagsHtml}</div></td>
+          <td>${escapeHtml(previewText)}</td>
+          <td>${formatDate(prompt.created_at)}</td>
+          <td>
+            <button class="btn btn-primary action-btn edit-btn" data-id="${escapeHtml(prompt.id)}">Edit</button>
+            <button class="btn btn-danger action-btn delete-btn" data-id="${escapeHtml(prompt.id)}">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+    
+    tbody.insertAdjacentHTML('beforeend', html);
+    currentIndex += chunkSize;
+    
+    if (currentIndex < sortedPrompts.length) {
+      const tr = document.createElement('tr');
+      tr.className = 'scroll-sentinel';
+      tr.innerHTML = '<td colspan="6" style="height: 1px; padding: 0; border: none;"></td>';
+      tbody.appendChild(tr);
+      
+      tableObserver = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+          loadNextChunk();
+        }
+      });
+      tableObserver.observe(tr);
+    }
+  };
+
+  loadNextChunk();
   attachTableEventListeners();
 }
 
+let tableListenersAttached = false;
 function attachTableEventListeners() {
-  document.getElementById('selectAllCheckbox').addEventListener('change', (e) => {
-    const checkboxes = document.querySelectorAll('.prompt-checkbox');
-    checkboxes.forEach(checkbox => {
-      checkbox.checked = e.target.checked;
-      if (e.target.checked) {
-        selectedPrompts.add(checkbox.dataset.id);
-      } else {
-        selectedPrompts.delete(checkbox.dataset.id);
-      }
-    });
-  });
+  if (tableListenersAttached) return;
+  tableListenersAttached = true;
   
-  document.querySelectorAll('.prompt-checkbox').forEach(checkbox => {
-    checkbox.addEventListener('change', (e) => {
+  document.getElementById('tableContainer').addEventListener('change', (e) => {
+    if (e.target.id === 'selectAllCheckbox') {
+      const checkboxes = document.querySelectorAll('.prompt-checkbox');
+      checkboxes.forEach(checkbox => {
+        checkbox.checked = e.target.checked;
+        if (e.target.checked) {
+          selectedPrompts.add(checkbox.dataset.id);
+        } else {
+          selectedPrompts.delete(checkbox.dataset.id);
+        }
+      });
+    } else if (e.target.classList.contains('prompt-checkbox')) {
       if (e.target.checked) {
         selectedPrompts.add(e.target.dataset.id);
       } else {
         selectedPrompts.delete(e.target.dataset.id);
       }
-    });
+    }
   });
   
-  document.querySelectorAll('.edit-btn').forEach(button => {
-    button.addEventListener('click', async (e) => {
+  document.getElementById('tableContainer').addEventListener('click', async (e) => {
+    if (e.target.classList.contains('edit-btn')) {
       const promptId = e.target.dataset.id;
       const prompts = await loadPrompts();
       const prompt = prompts.find(p => p.id === promptId);
-      
-      if (prompt) {
-        openEditModal(prompt);
-      }
-    });
-  });
-  
-  document.querySelectorAll('.delete-btn').forEach(button => {
-    button.addEventListener('click', async (e) => {
+      if (prompt) openEditModal(prompt);
+    } else if (e.target.classList.contains('delete-btn')) {
       const promptId = e.target.dataset.id;
-      
       if (confirm('Are you sure you want to delete this prompt?')) {
+        await dbDeletePrompt(promptId);
         const prompts = await loadPrompts();
-        const updatedPrompts = prompts.filter(p => p.id !== promptId);
-        await savePrompts(updatedPrompts);
         selectedPrompts.delete(promptId);
         
-        updateStats(updatedPrompts);
-        renderTable(updatedPrompts);
+        updateStats(prompts);
+        const row = e.target.closest('.prompt-row');
+        if (row) row.remove();
         showNotification('Prompt deleted successfully');
       }
-    });
+    }
   });
 }
 
@@ -333,6 +360,7 @@ function openEditModal(prompt) {
   document.getElementById('editBestUseCase').value = usageContext.best_use_case || '';
   document.getElementById('editRecommendedModel').value = usageContext.recommended_model || '';
   document.getElementById('editLimitations').value = usageContext.limitations || '';
+  document.getElementById('editVersionNote').value = '';
   renderVersionHistory(prompt);
   
   modal.classList.add('active');
@@ -356,9 +384,19 @@ function renderVersionHistory(prompt) {
       ? `${version.content.slice(0, 140)}...`
       : version.content;
 
+    const titleText = version.title ? `<strong>${escapeHtml(version.title)}</strong>` : '<em>Unnamed</em>';
+    const noteText = version.version_note ? `<span class="version-note">${escapeHtml(version.version_note)}</span>` : '';
+    const tagsHtml = version.tags && version.tags.length > 0
+      ? `<div class="version-tags">${version.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>`
+      : '';
+
     return `
       <div class="version-item">
-        <div class="version-meta">${formatDate(version.saved_at)}</div>
+        <div class="version-meta">
+          <span>${formatDate(version.saved_at)} - ${titleText}</span>
+          ${noteText}
+        </div>
+        ${tagsHtml}
         <div class="version-preview">${escapeHtml(preview)}</div>
         <button type="button" class="btn btn-secondary action-btn restore-version-btn" data-version-index="${index}">Restore</button>
       </div>
@@ -372,7 +410,19 @@ function renderVersionHistory(prompt) {
         return;
       }
 
-      document.getElementById('editContent').value = sortedVersions[index].content;
+      const ver = sortedVersions[index];
+      document.getElementById('editTitle').value = ver.title || '';
+      document.getElementById('editContent').value = ver.content || '';
+      document.getElementById('editTags').value = ver.tags ? ver.tags.join(', ') : '';
+      if (ver.usage_context) {
+        document.getElementById('editBestUseCase').value = ver.usage_context.best_use_case || '';
+        document.getElementById('editRecommendedModel').value = ver.usage_context.recommended_model || '';
+        document.getElementById('editLimitations').value = ver.usage_context.limitations || '';
+      } else {
+        document.getElementById('editBestUseCase').value = '';
+        document.getElementById('editRecommendedModel').value = '';
+        document.getElementById('editLimitations').value = '';
+      }
       showNotification('Version restored into editor. Save to apply.', 2200);
     });
   });
@@ -389,19 +439,20 @@ function closeEditModal() {
 
 async function exportPrompts() {
   const prompts = await loadPrompts();
-  const dataStr = JSON.stringify(prompts, null, 2);
-  const dataBlob = new Blob([dataStr], { type: 'application/json' });
+  // Use NDJSON (JSONL) format to prevent massive single-string memory crashes
+  const jsonlParts = prompts.map(p => JSON.stringify(p) + '\n');
+  const dataBlob = new Blob(jsonlParts, { type: 'application/x-ndjson' });
   
   const url = URL.createObjectURL(dataBlob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `prompt-library-export-${Date.now()}.json`;
+  link.download = `prompt-library-export-${Date.now()}.jsonl`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
   
-  showNotification('Prompts exported successfully');
+  showNotification('Prompts exported successfully in NDJSON format');
 }
 
 async function importPrompts(file) {
@@ -410,7 +461,21 @@ async function importPrompts(file) {
     
     reader.onload = async (e) => {
       try {
-        const importedPrompts = JSON.parse(e.target.result);
+        const content = e.target.result.trim();
+        let importedPrompts = [];
+        
+        if (content.startsWith('[')) {
+          // Legacy standard JSON array format
+          importedPrompts = JSON.parse(content);
+        } else {
+          // NDJSON (JSONL) format
+          const lines = content.split('\n');
+          for (const line of lines) {
+            if (line.trim()) {
+              importedPrompts.push(JSON.parse(line));
+            }
+          }
+        }
         
         if (!Array.isArray(importedPrompts)) {
           reject(new Error('Invalid file format: expected an array of prompts'));
@@ -480,14 +545,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     
     if (confirm(`Are you sure you want to delete ${selectedPrompts.size} selected prompt(s)?`)) {
+      const idsToDelete = Array.from(selectedPrompts);
+      await dbDeletePromptsBulk(idsToDelete);
+      
       const prompts = await loadPrompts();
-      const updatedPrompts = prompts.filter(p => !selectedPrompts.has(p.id));
-      await savePrompts(updatedPrompts);
       selectedPrompts.clear();
       
-      updateStats(updatedPrompts);
-      renderTable(updatedPrompts);
-      showNotification(`${prompts.length - updatedPrompts.length} prompt(s) deleted successfully`);
+      updateStats(prompts);
+      renderTable(prompts);
+      showNotification(`${idsToDelete.length} prompt(s) deleted successfully`);
     }
   });
   
@@ -532,6 +598,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const bestUseCase = document.getElementById('editBestUseCase').value.trim();
     const recommendedModel = document.getElementById('editRecommendedModel').value.trim();
     const limitations = document.getElementById('editLimitations').value.trim();
+    const versionNote = document.getElementById('editVersionNote').value.trim();
     
     if (!title || !content) {
       document.getElementById('editTitle').classList.toggle('error', !title);
@@ -561,7 +628,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     if (promptIndex !== -1) {
       const previousPrompt = prompts[promptIndex];
-      const shouldSnapshot = previousPrompt.prompt_content !== content;
+      const shouldSnapshot = previousPrompt.prompt_content !== content || previousPrompt.title !== title || JSON.stringify(previousPrompt.tags) !== JSON.stringify(tags) || versionNote !== '';
       let versions = trimPromptVersions(sanitizePromptVersions(previousPrompt.versions));
 
       if (shouldSnapshot) {
@@ -569,7 +636,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           ...versions,
           {
             id: generateUUID(),
+            title: previousPrompt.title,
             content: previousPrompt.prompt_content,
+            tags: previousPrompt.tags,
+            usage_context: previousPrompt.usage_context,
+            version_note: versionNote,
             saved_at: Date.now()
           }
         ]);

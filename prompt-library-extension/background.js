@@ -1,3 +1,5 @@
+importScripts('storage.js');
+
 // Initialize context menus on install and startup
 chrome.runtime.onInstalled.addListener(() => {
   initializeContextMenus();
@@ -21,28 +23,23 @@ function initializeContextMenus() {
   });
   
   // Build "Inject Prompt" menu
-  chrome.storage.local.get(['prompts'], (result) => {
-    if (!result.prompts) {
-      chrome.storage.local.set({ prompts: [] });
-    }
-    buildPromptContextMenu(result.prompts || []);
-  });
+  dbLoadPrompts().then((prompts) => {
+    buildPromptContextMenu(prompts || []);
+  }).catch(console.error);
 }
 
 // Rebuild context menu when prompts change
-chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === 'local' && changes.prompts) {
-    buildPromptContextMenu(changes.prompts.newValue || []);
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'PROMPTS_UPDATED') {
+    dbLoadPrompts().then(prompts => buildPromptContextMenu(prompts)).catch(console.error);
   }
 });
 
 function buildPromptContextMenu(prompts) {
   // Remove and recreate to avoid duplicates
   chrome.contextMenus.remove('promptLibraryParent', () => {
-    // Ignore error if doesn't exist
     const lastError = chrome.runtime.lastError;
     
-    // Always create parent menu
     chrome.contextMenus.create({
       id: 'promptLibraryParent',
       title: '📋 Inject Prompt',
@@ -54,57 +51,63 @@ function buildPromptContextMenu(prompts) {
       }
 
       if (!prompts || prompts.length === 0) {
-        // Show message when no prompts exist
         chrome.contextMenus.create({
           id: 'promptLibraryEmpty',
           parentId: 'promptLibraryParent',
           title: '(No prompts saved yet)',
           contexts: ['editable'],
           enabled: false
-        }, () => {
-          if (chrome.runtime.lastError) {
-            console.error('Error creating empty menu item:', chrome.runtime.lastError.message);
-          }
         });
         return;
       }
 
-      // Sort by most recently updated and limit to 10 items
-      const sortedPrompts = [...prompts]
-        .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))
-        .slice(0, 10);
-
-      // Add each prompt as a submenu item
-      sortedPrompts.forEach((prompt, index) => {
-        const title = prompt.title.length > 50 
-          ? prompt.title.substring(0, 47) + '...' 
-          : prompt.title;
-        
-        chrome.contextMenus.create({
-          id: `inject_prompt_${prompt.id}`,
-          parentId: 'promptLibraryParent',
-          title: title,
-          contexts: ['editable']
-        }, () => {
-          if (chrome.runtime.lastError) {
-            console.error(`Error creating menu for prompt ${prompt.id}:`, chrome.runtime.lastError.message);
-          }
-        });
+      const tagGroups = { 'Uncategorized': [] };
+      prompts.forEach(prompt => {
+        if (!prompt.tags || prompt.tags.length === 0) {
+          tagGroups['Uncategorized'].push(prompt);
+        } else {
+          prompt.tags.forEach(tag => {
+            if (!tagGroups[tag]) tagGroups[tag] = [];
+            tagGroups[tag].push(prompt);
+          });
+        }
       });
 
-      // Add "More..." option to open popup/options
-      if (prompts.length > 10) {
+      Object.keys(tagGroups).sort().forEach(tag => {
+        const groupPrompts = tagGroups[tag];
+        if (groupPrompts.length === 0) return;
+
+        const tagSafe = tag.replace(/[^a-zA-Z0-9]/g, '_');
+        const tagMenuId = `tag_${tagSafe}`;
+        
         chrome.contextMenus.create({
-          id: 'promptLibraryMore',
+          id: tagMenuId,
           parentId: 'promptLibraryParent',
-          title: `--- More prompts (${prompts.length - 10}) ---`,
+          title: `📁 ${tag} (${groupPrompts.length})`,
           contexts: ['editable']
-        }, () => {
-          if (chrome.runtime.lastError) {
-            console.error('Error creating More menu item:', chrome.runtime.lastError.message);
-          }
         });
-      }
+
+        groupPrompts.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))
+          .slice(0, 15)
+          .forEach((prompt) => {
+            const title = prompt.title.length > 40 ? prompt.title.substring(0, 37) + '...' : prompt.title;
+            chrome.contextMenus.create({
+              id: `inject_prompt_${prompt.id}_${tagSafe}`,
+              parentId: tagMenuId,
+              title: title,
+              contexts: ['editable']
+            });
+          });
+          
+        if (groupPrompts.length > 15) {
+          chrome.contextMenus.create({
+            id: `promptLibraryMore_${tagSafe}`,
+            parentId: tagMenuId,
+            title: `--- More (${groupPrompts.length - 15}) ---`,
+            contexts: ['editable']
+          });
+        }
+      });
     });
   });
 }
@@ -132,39 +135,47 @@ async function injectPromptIntoPage(tabId, promptText) {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'saveAsPrompt' && info.selectionText) {
-    chrome.storage.local.get(['prompts'], (result) => {
-      const prompts = result.prompts || [];
-      
-      const newPrompt = {
-        id: generateUUID(),
-        title: 'Saved from Web',
-        prompt_content: info.selectionText,
-        tags: [],
-        source_url: tab.url || null,
-        is_template: false,
-        variables: [],
-        versions: [],
-        usage_context: null,
-        created_at: Date.now(),
-        updated_at: Date.now()
-      };
-      
-      prompts.push(newPrompt);
-      
-      chrome.storage.local.set({ prompts });
-    });
-  } else if (info.menuItemId.startsWith('inject_prompt_')) {
-    const promptId = info.menuItemId.replace('inject_prompt_', '');
+    const title = generatePromptTitle(info.selectionText);
     
-    chrome.storage.local.get(['prompts'], async (result) => {
-      const prompts = result.prompts || [];
-      const prompt = prompts.find(p => p.id === promptId);
-      
-      if (prompt && tab.id) {
-        await injectPromptIntoPage(tab.id, prompt.prompt_content);
+    let sourceTags = [];
+    if (tab && tab.url) {
+      try {
+        const urlObj = new URL(tab.url);
+        const hostname = urlObj.hostname.replace(/^www\./, '');
+        if (hostname) {
+          sourceTags.push(hostname);
+        }
+      } catch (e) {
+        // Ignore invalid URLs
       }
-    });
-  } else if (info.menuItemId === 'promptLibraryMore') {
+    }
+    
+    const newPrompt = {
+      id: generateUUID(),
+      title: title,
+      prompt_content: info.selectionText,
+      tags: sourceTags,
+      source_url: tab.url || null,
+      is_template: false,
+      variables: [],
+      versions: [],
+      usage_context: null,
+      created_at: Date.now(),
+      updated_at: Date.now()
+    };
+    
+    dbSavePrompt(newPrompt).catch(console.error);
+  } else if (info.menuItemId.startsWith('inject_prompt_')) {
+    const match = info.menuItemId.match(/inject_prompt_([a-f0-9\-]+)/);
+    if (match) {
+      const promptId = match[1];
+      dbGetPrompt(promptId).then(async (prompt) => {
+        if (prompt && tab.id) {
+          await injectPromptIntoPage(tab.id, prompt.prompt_content);
+        }
+      }).catch(console.error);
+    }
+  } else if (info.menuItemId.startsWith('promptLibraryMore')) {
     // Open extension popup or options page
     chrome.action.openPopup().catch(() => {
       chrome.runtime.openOptionsPage();
@@ -178,4 +189,51 @@ function generateUUID() {
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
+}
+
+function generatePromptTitle(text) {
+  if (!text || !text.trim()) return 'Saved from Web Prompt';
+
+  const cleanText = text.trim();
+  
+  // 1. Try to extract an action phrase
+  const actionRegex = /^(?:please\s+)?(?:can you\s+)?(?:could you\s+)?(write|create|generate|make|explain|summarize|translate|convert|refactor|debug|analyze|help|provide)\b/i;
+  const actionMatch = cleanText.match(actionRegex);
+  
+  if (actionMatch) {
+    const firstSentence = cleanText.split(/[.?!]/)[0].replace(/\s+/g, ' ').trim();
+    const words = firstSentence.split(' ');
+    const title = words.slice(0, 10).join(' ') + (words.length > 10 ? '...' : '');
+    return title.charAt(0).toUpperCase() + title.slice(1);
+  }
+
+  // 2. Simple NLP keyword extraction (TF-based)
+  const stopWords = new Set(['a','an','and','are','as','at','be','by','for','from','has','he','in','is','it','its','of','on','that','the','to','was','were','will','with','i','you','my','your','we','our','they','their','this','that','these','those','what','which','who','whom','whose','when','where','why','how','all','any','both','each','few','more','most','other','some','such','no','nor','not','only','own','same','so','than','too','very','can','will','just','should','now','please','could','would','do','does','did','am','been','being','have','had','having','doing']);
+  
+  const wordsForNlp = cleanText.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+  
+  if (wordsForNlp.length > 0) {
+    const freqs = {};
+    wordsForNlp.forEach(w => freqs[w] = (freqs[w] || 0) + 1);
+    
+    const uniqueWords = [...new Set(wordsForNlp)];
+    uniqueWords.sort((a, b) => {
+      const freqDiff = freqs[b] - freqs[a];
+      if (freqDiff !== 0) return freqDiff;
+      return wordsForNlp.indexOf(a) - wordsForNlp.indexOf(b);
+    });
+
+    const topKeywords = uniqueWords.slice(0, 3);
+    const capitalizedKeywords = topKeywords.map(w => w.charAt(0).toUpperCase() + w.slice(1));
+    return capitalizedKeywords.join(' ') + ' Prompt';
+  }
+
+  // 3. Fallback: just use the first few words
+  const words = cleanText.split(/\s+/);
+  if (words.length > 0) {
+    const title = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
+    return title.charAt(0).toUpperCase() + title.slice(1);
+  }
+
+  return 'Saved from Web Prompt';
 }

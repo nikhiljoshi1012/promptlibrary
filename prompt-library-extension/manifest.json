@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Prompt Library",
-  "version": "1.4.1",
+  "version": "2.0.0",
   "description": "Save, organize, search, and copy AI prompts with ease",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "clipboardWrite",
     "contextMenus",
     "activeTab",

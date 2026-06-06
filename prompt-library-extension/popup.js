@@ -69,14 +69,18 @@ function sanitizePromptVersions(value) {
         return null;
       }
 
-      const content = sanitizeText(version.content);
+      const content = sanitizeText(version.content || version.prompt_content);
       if (!content) {
         return null;
       }
 
       return {
         id: sanitizeText(version.id) || generateUUID(),
+        title: sanitizeText(version.title),
         content,
+        tags: sanitizeTags(version.tags),
+        usage_context: sanitizeUsageContext(version.usage_context),
+        version_note: sanitizeText(version.version_note),
         saved_at: Number.isFinite(version.saved_at)
           ? version.saved_at
           : Date.now(),
@@ -165,77 +169,45 @@ function parseVariables(promptContent) {
   return { variables, mapping };
 }
 
-function normalizeSearchText(text) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
+const searchWorker = new Worker("searchWorker.js");
 
-function tokenizeQuery(query) {
-  const normalized = normalizeSearchText(query);
-  if (!normalized) {
-    return [];
-  }
-  return normalized.split(" ").filter(Boolean);
-}
-
-function buildSearchableText(prompt) {
-  const usageContext = prompt.usage_context || {};
-  const fields = [
-    prompt.title || "",
-    prompt.prompt_content || "",
-    (prompt.tags || []).join(" "),
-    usageContext.best_use_case || "",
-    usageContext.recommended_model || "",
-    usageContext.limitations || "",
-  ];
-  return normalizeSearchText(fields.join(" "));
+function performSearch(query, prompts) {
+  return new Promise((resolve) => {
+    const searchId = Date.now().toString() + Math.random().toString();
+    const handler = (e) => {
+      if (e.data.searchId === searchId) {
+        searchWorker.removeEventListener("message", handler);
+        resolve(e.data.results);
+      }
+    };
+    searchWorker.addEventListener("message", handler);
+    searchWorker.postMessage({ query, prompts, searchId });
+  });
 }
 
 // Storage helpers
 async function loadPrompts() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(["prompts"], (result) => {
-      const storedPrompts = Array.isArray(result.prompts) ? result.prompts : [];
-      const normalizedPrompts = storedPrompts
-        .map(normalizePrompt)
-        .filter((prompt) => Boolean(prompt));
-      resolve(normalizedPrompts);
-    });
-  });
+  const storedPrompts = await dbLoadPrompts();
+  const normalizedPrompts = storedPrompts
+    .map(normalizePrompt)
+    .filter((prompt) => Boolean(prompt));
+  return normalizedPrompts;
 }
 
 async function savePrompts(prompts) {
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ prompts }, () => {
-      resolve();
-    });
-  });
+  await dbSavePrompts(prompts);
 }
 
 async function loadPromptDraft() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(["promptDraft"], (result) => {
-      resolve(result.promptDraft || null);
-    });
-  });
+  return await dbLoadPromptDraft();
 }
 
 async function savePromptDraft(draft) {
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ promptDraft: draft }, () => {
-      resolve();
-    });
-  });
+  await dbSavePromptDraft(draft);
 }
 
 async function clearPromptDraft() {
-  return new Promise((resolve) => {
-    chrome.storage.local.remove(["promptDraft"], () => {
-      resolve();
-    });
-  });
+  await dbClearPromptDraft();
 }
 
 function formatRelativeTime(timestamp) {
@@ -331,48 +303,88 @@ function renderPromptCard(prompt) {
   `;
 }
 
-async function renderArchiveList(prompts) {
-  const archiveList = document.getElementById("archiveList");
-  if (!archiveList) return;
+let currentObservers = {};
+
+function renderChunkedList(containerId, prompts) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (currentObservers[containerId]) {
+    currentObservers[containerId].disconnect();
+    currentObservers[containerId] = null;
+  }
 
   if (prompts.length === 0) {
-    archiveList.innerHTML = `<div class="empty-state"><p>No prompts yet. Create one to get started!</p></div>`;
+    if (containerId === 'archiveList') {
+      container.innerHTML = `<div class="empty-state"><p>No prompts yet. Create one to get started!</p></div>`;
+    } else if (containerId === 'historyList') {
+      container.innerHTML = `<div class="empty-state"><p>No recently used prompts.</p></div>`;
+    } else if (containerId === 'searchResults') {
+      container.innerHTML = `<div class="empty-state"><p>No prompts match your search.</p></div>`;
+    }
     return;
   }
 
-  const sortedPrompts = [...prompts].sort(
-    (a, b) => b.updated_at - a.updated_at,
-  );
-  archiveList.innerHTML = sortedPrompts
-    .map((prompt) => renderPromptCard(prompt))
-    .join("");
+  container.innerHTML = '';
+  const chunkSize = 20;
+  let currentIndex = 0;
+
+  const loadNextChunk = () => {
+    const chunk = prompts.slice(currentIndex, currentIndex + chunkSize);
+    if (chunk.length === 0) return;
+
+    const oldSentinel = container.querySelector('.scroll-sentinel');
+    if (oldSentinel) oldSentinel.remove();
+
+    const html = chunk.map(prompt => renderPromptCard(prompt)).join('');
+    container.insertAdjacentHTML('beforeend', html);
+
+    currentIndex += chunkSize;
+
+    if (currentIndex < prompts.length) {
+      const sentinel = document.createElement('div');
+      sentinel.className = 'scroll-sentinel';
+      sentinel.style.height = '1px';
+      container.appendChild(sentinel);
+      
+      const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+          loadNextChunk();
+        }
+      });
+      observer.observe(sentinel);
+      currentObservers[containerId] = observer;
+    }
+  };
+
+  loadNextChunk();
   attachCardListeners();
+}
+
+async function renderArchiveList(prompts) {
+  const sortedPrompts = [...prompts].sort((a, b) => b.updated_at - a.updated_at);
+  renderChunkedList('archiveList', sortedPrompts);
 }
 
 async function renderHistoryList(prompts) {
-  const historyList = document.getElementById("historyList");
-  if (!historyList) return;
-
   const usedPrompts = prompts
     .filter((p) => p.last_used !== null && p.last_used !== undefined)
     .sort((a, b) => (b.last_used || 0) - (a.last_used || 0));
-
-  if (usedPrompts.length === 0) {
-    historyList.innerHTML = `<div class="empty-state"><p>No recently used prompts.</p></div>`;
-    return;
-  }
-
-  historyList.innerHTML = usedPrompts
-    .map((prompt) => renderPromptCard(prompt))
-    .join("");
-  attachCardListeners();
+  renderChunkedList('historyList', usedPrompts);
 }
 
+let cardListenersAttached = false;
 function attachCardListeners() {
-  document.querySelectorAll(".action-btn").forEach((button) => {
-    button.addEventListener("click", async (e) => {
-      const promptId = e.currentTarget.dataset.id;
-      const action = e.currentTarget.dataset.action;
+  if (cardListenersAttached) return;
+  cardListenersAttached = true;
+
+  document.querySelector('.main-content').addEventListener('click', async (e) => {
+    const actionBtn = e.target.closest('.action-btn');
+    const injectBtn = e.target.closest('.btn-inject');
+
+    if (actionBtn) {
+      const promptId = actionBtn.dataset.id;
+      const action = actionBtn.dataset.action;
       const prompts = await loadPrompts();
       const prompt = prompts.find((p) => p.id === promptId);
 
@@ -394,9 +406,9 @@ function attachCardListeners() {
         try {
           await trackUsage(promptId);
           await navigator.clipboard.writeText(prompt.prompt_content);
-          e.currentTarget.textContent = "✓";
+          actionBtn.textContent = "✓";
           setTimeout(() => {
-            e.currentTarget.textContent = "📋";
+            actionBtn.textContent = "📋";
           }, 2000);
           showToast("Message copied to clipboard.");
         } catch (err) {
@@ -406,26 +418,14 @@ function attachCardListeners() {
         const confirmed = window.confirm("Delete this prompt?");
         if (!confirmed) return;
 
-        const updated = prompts.filter((p) => p.id !== promptId);
-        await savePrompts(updated);
-
-        const activeView = document.querySelector(".view-container.active");
-        if (activeView.id === "archiveView") {
-          renderArchiveList(updated);
-        } else if (activeView.id === "historyView") {
-          renderHistoryList(updated);
-        } else if (activeView.id === "searchView") {
-          const searchInput = document.getElementById("advancedSearchInput");
-          await searchPromptsInView(searchInput.value);
-        }
+        // Targeted DOM removal instead of full re-render
+        await dbDeletePrompt(promptId);
+        const card = actionBtn.closest('.prompt-card');
+        if (card) card.remove();
         showToast("Prompt deleted.");
       }
-    });
-  });
-
-  document.querySelectorAll(".btn-inject").forEach((button) => {
-    button.addEventListener("click", async (e) => {
-      const promptId = e.currentTarget.dataset.id;
+    } else if (injectBtn) {
+      const promptId = injectBtn.dataset.id;
       const prompts = await loadPrompts();
       const prompt = prompts.find((p) => p.id === promptId);
 
@@ -451,7 +451,7 @@ function attachCardListeners() {
           showToast(response.message || "Injection failed.");
         }
       }
-    });
+    }
   });
 }
 
@@ -649,6 +649,9 @@ async function openEditModal(prompt) {
   document.getElementById("editPromptLimitations").value =
     usageContext.limitations || "";
 
+  document.getElementById("editPromptVersionNote").value = "";
+  renderPopupVersionHistory(prompt);
+
   modal.classList.add("active");
   modal.setAttribute("aria-hidden", "false");
 
@@ -690,6 +693,83 @@ function closeEditModal() {
   const modal = document.getElementById("editPromptModal");
   modal.classList.remove("active");
   modal.setAttribute("aria-hidden", "true");
+  const container = document.getElementById("popupVersionHistoryContainer");
+  if (container) {
+    container.innerHTML = "";
+  }
+}
+
+function trimPromptVersions(versions) {
+  const MAX_PROMPT_VERSIONS = 30;
+  if (!Array.isArray(versions) || versions.length <= MAX_PROMPT_VERSIONS) {
+    return Array.isArray(versions) ? versions : [];
+  }
+  return [...versions]
+    .sort((a, b) => a.saved_at - b.saved_at)
+    .slice(-MAX_PROMPT_VERSIONS);
+}
+
+function renderPopupVersionHistory(prompt) {
+  const container = document.getElementById("popupVersionHistoryContainer");
+  const section = document.getElementById("popupVersionHistorySection");
+  if (!container || !section) return;
+
+  const versions = trimPromptVersions(sanitizePromptVersions(prompt.versions));
+  if (versions.length === 0) {
+    section.classList.add("hidden");
+    container.innerHTML = '<div class="version-empty">No previous versions yet.</div>';
+    return;
+  }
+
+  section.classList.remove("hidden");
+  const sortedVersions = [...versions].sort((a, b) => b.saved_at - a.saved_at);
+  container.innerHTML = sortedVersions.map((version, index) => {
+    const preview = version.content.length > 140
+      ? `${version.content.slice(0, 140)}...`
+      : version.content;
+
+    const titleText = version.title ? `<strong>${escapeHtml(version.title)}</strong>` : '<em>Unnamed</em>';
+    const noteText = version.version_note ? `<span class="version-note">${escapeHtml(version.version_note)}</span>` : '';
+    const tagsHtml = version.tags && version.tags.length > 0
+      ? `<div class="version-tags">${version.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>`
+      : '';
+
+    return `
+      <div class="version-item">
+        <div class="version-meta">
+          <span>${formatRelativeTime(version.saved_at)} - ${titleText}</span>
+          ${noteText}
+        </div>
+        ${tagsHtml}
+        <div class="version-preview">${escapeHtml(preview)}</div>
+        <button type="button" class="btn-secondary action-btn restore-version-btn" data-version-index="${index}">Restore</button>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.restore-version-btn').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      const index = Number.parseInt(event.currentTarget.dataset.versionIndex, 10);
+      if (Number.isNaN(index) || !sortedVersions[index]) {
+        return;
+      }
+
+      const ver = sortedVersions[index];
+      document.getElementById('editPromptTitle').value = ver.title || '';
+      document.getElementById('editPromptContent').value = ver.content || '';
+      document.getElementById('editPromptTags').value = ver.tags ? ver.tags.join(', ') : '';
+      if (ver.usage_context) {
+        document.getElementById('editPromptBestUseCase').value = ver.usage_context.best_use_case || '';
+        document.getElementById('editPromptRecommendedModel').value = ver.usage_context.recommended_model || '';
+        document.getElementById('editPromptLimitations').value = ver.usage_context.limitations || '';
+      } else {
+        document.getElementById('editPromptBestUseCase').value = '';
+        document.getElementById('editPromptRecommendedModel').value = '';
+        document.getElementById('editPromptLimitations').value = '';
+      }
+      showToast('Version restored into editor. Save to apply.', 2200);
+    });
+  });
 }
 
 // AUTOSAVE / DRAFT MANAGEMENT
@@ -1085,18 +1165,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     const promptCharCount = document.getElementById("promptCharCount");
 
     const TITLE_LIMIT = 80;
-    const PROMPT_LIMIT = 1200;
 
     const updateCharCount = (input, label, limit) => {
       if (!label) return;
       const count = input.value.length;
-      label.textContent = `${count}/${limit}`;
-      label.classList.toggle("over-limit", count > limit);
+      if (limit) {
+        label.textContent = `${count}/${limit}`;
+        label.classList.toggle("over-limit", count > limit);
+      } else {
+        label.textContent = `${count} chars`;
+        label.classList.remove("over-limit");
+      }
     };
 
     const updateCharCounts = () => {
       updateCharCount(titleInput, titleCharCount, TITLE_LIMIT);
-      updateCharCount(promptInput, promptCharCount, PROMPT_LIMIT);
+      updateCharCount(promptInput, promptCharCount, null); // No limit for prompt
     };
 
     updateCharCounts();
@@ -1229,22 +1313,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Search view handler (from archive view input)
   const searchInput = document.getElementById("searchInput");
   if (searchInput) {
-    searchInput.addEventListener("input", (e) => {
-      // Filter within archive view
-      const query = e.target.value.trim().toLowerCase();
-      const tokens = tokenizeQuery(query);
-      const allPrompts = prompts;
+    searchInput.addEventListener("input", async (e) => {
+      const query = e.target.value.trim();
+      const allPrompts = await loadPrompts();
 
-      if (tokens.length === 0) {
+      if (!query) {
         renderArchiveList(allPrompts);
         return;
       }
 
-      const filtered = allPrompts.filter((prompt) => {
-        const searchable = buildSearchableText(prompt);
-        return tokens.every((token) => searchable.includes(token));
-      });
-
+      const filtered = await performSearch(query, allPrompts);
       renderArchiveList(filtered);
     });
   }
@@ -1255,30 +1333,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     advancedSearchInput.addEventListener("input", async (e) => {
       const query = e.target.value.trim();
       const allPrompts = await loadPrompts();
-      const tokens = tokenizeQuery(query);
 
-      const searchResults = document.getElementById("searchResults");
-      if (!searchResults) return;
-
-      if (tokens.length === 0) {
-        searchResults.innerHTML = `<div class="empty-state"><p>Enter a search query.</p></div>`;
+      if (!query) {
+        document.getElementById("searchResults").innerHTML = `<div class="empty-state"><p>Enter a search query.</p></div>`;
         return;
       }
 
-      const filtered = allPrompts.filter((prompt) => {
-        const searchable = buildSearchableText(prompt);
-        return tokens.every((token) => searchable.includes(token));
-      });
-
-      if (filtered.length === 0) {
-        searchResults.innerHTML = `<div class="empty-state"><p>No prompts match your search.</p></div>`;
-        return;
-      }
-
-      searchResults.innerHTML = filtered
-        .map((prompt) => renderPromptCard(prompt))
-        .join("");
-      attachCardListeners();
+      const filtered = await performSearch(query, allPrompts);
+      renderChunkedList("searchResults", filtered);
     });
   }
 
@@ -1405,6 +1467,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       const limitations = document
         .getElementById("editPromptLimitations")
         .value.trim();
+      const versionNote = document
+        .getElementById("editPromptVersionNote")
+        .value.trim();
 
       if (!title || !content) {
         showToast("Title and content are required.");
@@ -1434,23 +1499,22 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       if (promptIndex !== -1) {
         const previousPrompt = storedPrompts[promptIndex];
-        const shouldSnapshot = previousPrompt.prompt_content !== content;
-        let versions = sanitizePromptVersions(previousPrompt.versions);
+        const shouldSnapshot = previousPrompt.prompt_content !== content || previousPrompt.title !== title || JSON.stringify(previousPrompt.tags) !== JSON.stringify(tags) || versionNote !== '';
+        let versions = trimPromptVersions(sanitizePromptVersions(previousPrompt.versions));
 
         if (shouldSnapshot) {
-          const MAX_PROMPT_VERSIONS = 10;
-          versions = [
+          versions = trimPromptVersions([
             ...versions,
             {
               id: generateUUID(),
+              title: previousPrompt.title,
               content: previousPrompt.prompt_content,
+              tags: previousPrompt.tags,
+              usage_context: previousPrompt.usage_context,
+              version_note: versionNote,
               saved_at: Date.now(),
             },
-          ];
-
-          if (versions.length > MAX_PROMPT_VERSIONS) {
-            versions = versions.slice(-MAX_PROMPT_VERSIONS);
-          }
+          ]);
         }
 
         storedPrompts[promptIndex] = {
